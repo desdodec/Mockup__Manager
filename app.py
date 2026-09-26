@@ -18,28 +18,58 @@ st.caption("AI creates the photograph. Your uploaded print artwork is applied af
 if "generated_scene" not in st.session_state:
     st.session_state.generated_scene = None
 
-st.subheader("1. Generate the blank-mug photograph")
-prompt = st.text_area(
+st.subheader("1. Choose the blank-mug photograph")
+scene_source = st.radio(
+    "Scene source",
+    ["Upload my own scene", "Generate with AI"],
+    horizontal=True,
+    help="Uploading a scene does not call the image-generation API.",
+)
+
+if scene_source == "Upload my own scene":
+    scene_upload = st.file_uploader(
+        "Upload a scene containing blank mugs",
+        type=["png", "jpg", "jpeg"],
+        key="own-scene",
+    )
+    upload_count = st.number_input("How many mugs are in this scene?", 1, 10, 3, key="upload-mug-count")
+    if scene_upload is not None:
+        uploaded_image = Image.open(scene_upload).convert("RGBA")
+        # Only replace the working scene when the uploaded file changes.
+        upload_signature = (scene_upload.name, scene_upload.size)
+        if st.session_state.get("upload_signature") != upload_signature:
+            st.session_state.generated_scene = uploaded_image
+            st.session_state.mug_count = int(upload_count)
+            st.session_state.upload_signature = upload_signature
+        else:
+            st.session_state.mug_count = int(upload_count)
+    elif st.session_state.get("upload_signature") is not None:
+        st.session_state.generated_scene = None
+        st.session_state.upload_signature = None
+
+if scene_source == "Generate with AI":
+    prompt = st.text_area(
     "Describe the scene",
     value="3 blank white mugs on a rustic West Yorkshire farmhouse table, old stone farmhouse kitchen, soft window light, premium Etsy product photography",
     height=100,
 )
-g1,g2,g3 = st.columns(3)
-mug_count = g1.number_input("Mugs", 1, 10, 3)
-ratio = g2.selectbox("Aspect ratio", ["4:5","1:1","landscape"])
-api_key = g3.text_input("OpenAI API key", value=os.getenv("OPENAI_API_KEY",""), type="password")
+    g1,g2,g3 = st.columns(3)
+    mug_count = g1.number_input("Mugs", 1, 10, 3)
+    ratio = g2.selectbox("Aspect ratio", ["4:5","1:1","landscape"])
+    api_key = g3.text_input("OpenAI API key", value=os.getenv("OPENAI_API_KEY",""), type="password")
 
-if st.button("Generate scene", type="primary", width="stretch"):
-    if not api_key:
-        st.error("Enter an OpenAI API key or set OPENAI_API_KEY.")
-    else:
-        with st.spinner("Generating photorealistic blank-mug scene…"):
-            try:
-                generated = OpenAISceneGenerator(api_key).generate(prompt, int(mug_count), ratio)
-                st.session_state.generated_scene = generated.image
-                st.session_state.mug_count = int(mug_count)
-            except Exception as exc:
-                st.error(f"Scene generation failed: {exc}")
+    if st.button("Generate scene", type="primary", width="stretch"):
+        if not api_key:
+            st.error("Enter an OpenAI API key or set OPENAI_API_KEY.")
+        else:
+            with st.spinner("Generating photorealistic blank-mug scene…"):
+                try:
+                    generated = OpenAISceneGenerator(api_key).generate(prompt, int(mug_count), ratio)
+                    st.session_state.generated_scene = generated.image
+                    st.session_state.mug_count = int(mug_count)
+                    st.session_state.upload_signature = None
+                except Exception as exc:
+                    st.error(f"Scene generation failed: {exc}")
 
 scene_img = st.session_state.generated_scene
 if scene_img is not None:
@@ -100,4 +130,7 @@ if scene_img is not None:
         d1.download_button("Download PNG",png.getvalue(),"mockup.png","image/png",width="stretch")
         d2.download_button("Download JPG",jpg.getvalue(),"mockup.jpg","image/jpeg",width="stretch")
 else:
-    st.info("Generate a scene to begin. Your product artwork is not sent to the image-generation API.")
+    if scene_source == "Upload my own scene":
+        st.info("Upload a blank-mug scene to begin. This route does not use the image-generation API.")
+    else:
+        st.info("Generate a scene to begin. Your product artwork is not sent to the image-generation API.")
