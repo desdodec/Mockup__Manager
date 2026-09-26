@@ -1,0 +1,25 @@
+{
+  "id": "demo_two_mugs",
+  "name": "Demo — two mugs",
+  "image": "scene.png",
+  "slots": [
+    {
+      "id": "mug_01",
+      "label": "Left mug",
+      "corners": [[405, 585], [630, 592], [620, 805], [414, 800]],
+      "curvature": 0.28,
+      "opacity": 0.94,
+      "orientation": "front",
+      "z_order": 10
+    },
+    {
+      "id": "mug_02",
+      "label": "Right mug",
+      "corners": [[952, 610], [1168, 604], [1162, 812], [960, 818]],
+      "curvature": 0.28,
+      "opacity": 0.94,
+      "orientation": "front",
+      "z_order": 20
+    }
+  ]
+}
