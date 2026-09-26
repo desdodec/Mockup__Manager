@@ -54,6 +54,8 @@ slots=[dict(s) for s in st.session_state.detected]
 
 if len(slots)!=int(expected):
     st.warning(f"Detected {len(slots)} of {int(expected)} requested mugs. Use Adjust detection for this scene.")
+    if not slots and detect_mug_surfaces.last_error:
+        st.caption(f"Semantic detector error: {detect_mug_surfaces.last_error}")
 else:
     low=sum(s["confidence"]<0.62 for s in slots)
     if low: st.warning(f"{low} mug detection(s) have low confidence. Check the overlay before rendering.")
