@@ -2,3 +2,4 @@ streamlit>=1.38
 Pillow>=10.4
 numpy>=1.26
 opencv-python-headless>=4.10
+pytest>=8.3
