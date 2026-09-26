@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
 
 Point = tuple[float, float]
 
@@ -14,7 +13,8 @@ class MugSlot:
     corners: tuple[Point, Point, Point, Point]
     curvature: float = 0.20
     opacity: float = 1.0
-    orientation: Literal["front", "rear"] = "front"
+    view_angle: float = 0.0
+    visible_fraction: float = 0.42
     print_mask: Path | None = None
     lighting_map: Path | None = None
     z_order: int = 0
