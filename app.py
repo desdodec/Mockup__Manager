@@ -8,6 +8,7 @@ from PIL import Image
 from compositing.renderer import render_scene
 from config import TEMPLATES_DIR
 from scenes.registry import discover_scenes
+from scripts import create_demo_template  # noqa: F401 - creates demo scene asset if missing
 
 st.set_page_config(page_title="Mockup Manager", page_icon="☕", layout="wide")
 st.title("☕ Mockup Manager")
