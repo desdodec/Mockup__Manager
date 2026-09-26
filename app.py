@@ -78,7 +78,7 @@ if scene_img is not None:
     st.subheader("2. Define / correct the mug print surfaces")
     st.caption("This calibration affects geometry only. It never edits the source artwork.")
     w,h = scene_img.size
-    count = int(st.session_state.get("mug_count", mug_count))
+    count = int(st.session_state.get("mug_count", 1))
     slots=[]
     controls, overlay_col = st.columns([1,1.7])
     with controls:
