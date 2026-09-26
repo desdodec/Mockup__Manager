@@ -5,17 +5,10 @@ from collections.abc import Mapping
 from PIL import Image
 
 from scenes.models import Scene
-
-from .artwork import prepare_artwork
 from .curvature import cylindrical_warp
 from .lighting import apply_scene_lighting
 from .perspective import warp_to_canvas
-
-
-def _slot_aspect(corners: tuple[tuple[float, float], ...]) -> float:
-    top = ((corners[1][0] - corners[0][0]) ** 2 + (corners[1][1] - corners[0][1]) ** 2) ** 0.5
-    left = ((corners[3][0] - corners[0][0]) ** 2 + (corners[3][1] - corners[0][1]) ** 2) ** 0.5
-    return max(top, 1.0) / max(left, 1.0)
+from .wrap import extract_visible_wrap
 
 
 def render_scene(
@@ -35,10 +28,19 @@ def render_scene(
         override = overrides.get(slot.id, {})
         curvature = float(override.get("curvature", slot.curvature))
         opacity = float(override.get("opacity", slot.opacity))
+        view_angle = float(override.get("view_angle", slot.view_angle))
+        visible_fraction = float(override.get("visible_fraction", slot.visible_fraction))
         corners = tuple(override.get("corners", slot.corners))
 
-        prepared = prepare_artwork(artwork, _slot_aspect(corners))
-        curved = cylindrical_warp(prepared, curvature)
+        # IMPORTANT: artwork is a complete mug-print canvas. Do not trim it or
+        # fit the whole sheet onto the visible face. Sample the portion of the
+        # circumference that the camera can see.
+        visible = extract_visible_wrap(
+            artwork,
+            view_angle=view_angle,
+            visible_fraction=visible_fraction,
+        )
+        curved = cylindrical_warp(visible, curvature)
         layer = warp_to_canvas(curved, corners, base.size)
 
         if opacity < 1.0:
@@ -48,11 +50,7 @@ def render_scene(
             layer.putalpha(alpha)
 
         mask = Image.open(slot.print_mask) if slot.print_mask and slot.print_mask.exists() else None
-        lighting = (
-            Image.open(slot.lighting_map)
-            if slot.lighting_map and slot.lighting_map.exists()
-            else None
-        )
+        lighting = Image.open(slot.lighting_map) if slot.lighting_map and slot.lighting_map.exists() else None
         layer = apply_scene_lighting(base, layer, mask, lighting)
         base = Image.alpha_composite(base, layer)
 
