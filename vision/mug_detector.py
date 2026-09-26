@@ -1,48 +1,72 @@
 from __future__ import annotations
-import cv2
+
 import numpy as np
 from PIL import Image
 
 
-def _white_mask(rgb: np.ndarray) -> np.ndarray:
-    hsv=cv2.cvtColor(rgb,cv2.COLOR_RGB2HSV)
-    # White ceramic: low saturation and reasonably bright. Morphology joins
-    # highlight/shadow regions while rejecting small background details.
-    mask=cv2.inRange(hsv,np.array([0,0,105],np.uint8),np.array([179,92,255],np.uint8))
-    k=cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(9,9))
-    mask=cv2.morphologyEx(mask,cv2.MORPH_CLOSE,k,iterations=2)
-    mask=cv2.morphologyEx(mask,cv2.MORPH_OPEN,k,iterations=1)
-    return mask
+def _surface_from_box(x1: float, y1: float, x2: float, y2: float, confidence: float) -> dict:
+    """Convert a semantic mug box to the central printable ceramic body.
+
+    COCO's cup class includes the handle, so the print surface is deliberately
+    inset. This is a geometry proposal; artwork remains untouched.
+    """
+    w=max(1.0,x2-x1); h=max(1.0,y2-y1)
+    left=x1+w*0.18; right=x2-w*0.18
+    top=y1+h*0.22; bottom=y2-h*0.12
+    return {
+        "corners":((left,top),(right,top),(right,bottom),(left,bottom)),
+        "curvature":0.30,
+        "visible_fraction":0.42,
+        "confidence":float(confidence),
+        "bbox":(float(x1),float(y1),float(w),float(h)),
+        "detector":"semantic",
+    }
+
+
+def _semantic_detect(image: Image.Image, expected_count: int | None) -> list[dict]:
+    from ultralytics import YOLO
+
+    # COCO-pretrained segmentation recognises the semantic 'cup' category and
+    # avoids the old bright-object heuristic. We use the mask-capable model so
+    # the next renderer iteration can consume instance masks directly.
+    model=YOLO("yolo11n-seg.pt")
+    result=model.predict(source=np.asarray(image.convert("RGB")),conf=0.20,imgsz=960,verbose=False)[0]
+    if result.boxes is None:
+        return []
+
+    names=result.names
+    found=[]
+    for box in result.boxes:
+        cls_id=int(box.cls[0].item())
+        label=str(names[cls_id]).lower()
+        if label not in {"cup","mug"}:
+            continue
+        conf=float(box.conf[0].item())
+        x1,y1,x2,y2=[float(v) for v in box.xyxy[0].tolist()]
+        proposal=_surface_from_box(x1,y1,x2,y2,conf)
+        found.append(proposal)
+
+    found.sort(key=lambda s:s["confidence"],reverse=True)
+    if expected_count:
+        found=found[:expected_count]
+    found.sort(key=lambda s:s["bbox"][0])
+    return found
 
 
 def detect_mug_surfaces(image: Image.Image, expected_count: int | None=None) -> list[dict]:
-    """Conservative CV proposal detector for blank white mug bodies.
+    """Detect actual cup/mug objects using a pretrained semantic model.
 
-    Returns print-surface proposals sorted left-to-right. It intentionally
-    proposes geometry rather than altering product artwork.
+    The model weights download automatically on first use. If semantic
+    inference cannot run, return no detections rather than inventing surfaces
+    from unrelated white objects.
     """
-    rgb=np.asarray(image.convert("RGB"))
-    h,w=rgb.shape[:2]
-    mask=_white_mask(rgb)
-    contours,_=cv2.findContours(mask,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
-    candidates=[]
-    image_area=w*h
-    for c in contours:
-        x,y,bw,bh=cv2.boundingRect(c)
-        area=cv2.contourArea(c)
-        if area < image_area*0.003 or area > image_area*0.28: continue
-        aspect=bw/max(bh,1)
-        if not 0.45 <= aspect <= 2.4: continue
-        fill=area/max(bw*bh,1)
-        if fill < 0.38: continue
-        # Use the central body, excluding rim/base and much of the handle.
-        px=x+bw*0.16; py=y+bh*0.20
-        pw=bw*0.68; ph=bh*0.62
-        corners=((px,py),(px+pw,py),(px+pw,py+ph),(px,py+ph))
-        confidence=min(0.95,0.42+0.35*fill+0.18*min(area/(image_area*0.03),1))
-        candidates.append({"corners":corners,"curvature":0.30,"visible_fraction":0.42,"confidence":confidence,"bbox":(x,y,bw,bh)})
-    candidates.sort(key=lambda s:s["bbox"][0])
-    if expected_count:
-        candidates=sorted(candidates,key=lambda s:s["confidence"],reverse=True)[:expected_count]
-        candidates.sort(key=lambda s:s["bbox"][0])
-    return candidates
+    try:
+        return _semantic_detect(image,expected_count)
+    except Exception as exc:
+        # Fail closed: a false positive is worse than asking for correction.
+        # The UI exposes the error string for diagnosis.
+        detect_mug_surfaces.last_error=f"{type(exc).__name__}: {exc}"
+        return []
+
+
+detect_mug_surfaces.last_error=""
