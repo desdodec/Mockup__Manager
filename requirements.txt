@@ -4,3 +4,4 @@ numpy>=1.26
 opencv-python-headless>=4.10
 pytest>=8.3
 openai>=1.100
+ultralytics>=8.3
