@@ -80,7 +80,7 @@ else:
     if low: st.warning(f"{low} mug detection(s) have low confidence. Check the overlay before rendering.")
     else: st.success(f"Loaded {len(slots)} calibrated mug surfaces.")
 
-st.image(draw_calibration_overlay(scene,slots),caption="Calibrated printable surfaces",width="stretch")
+st.image(draw_calibration_overlay(scene,slots),caption="Calibrated physical mug cylinders",width="stretch")
 
 with st.expander("Adjust detection (fallback only)",expanded=len(slots)!=int(expected)):
     st.caption("Normal scenes should not require this. These controls are only for failed detections.")
