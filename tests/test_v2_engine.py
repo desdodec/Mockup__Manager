@@ -25,3 +25,18 @@ def test_front_and_rear_sample_different_source_regions():
     rear=_sample_wrap(art,.75,40,200)
     assert front[...,0].mean()>front[...,1].mean()
     assert rear[...,1].mean()>rear[...,0].mean()
+
+
+def test_vertical_scale_keeps_projection_valid():
+    art=Image.new("RGBA",(2048,849),(10,20,30,255))
+    slot=Slot("m",(0.2,0.2,0.8,0.8),scale=.9)
+    alpha=np.asarray(_project(art,(600,600),slot,"front"))[...,3]
+    assert alpha.max()==255
+
+def test_wrap_sampling_changes_with_centre():
+    arr=np.zeros((10,2048,4),np.uint8); arr[...,3]=255
+    arr[:,450:575,0]=255
+    art=Image.fromarray(arr,"RGBA")
+    a=_sample_wrap(art,.25,30,300)
+    b=_sample_wrap(art,.35,30,300)
+    assert not np.array_equal(a,b)
