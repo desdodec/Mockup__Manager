@@ -48,17 +48,31 @@ face=st.radio("Default artwork side",["Front","Rear"],horizontal=True,help="Fron
 
 if mode=="Two-mug preview":
     if not arts:
-        st.info("Upload one or two artwork files.")
+        st.info("Upload one or more artwork files. Each mug can independently use any uploaded artwork and its Front or Rear side.")
         st.stop()
     cols=st.columns(2)
     assignments={}
+    artwork_names=[name for name,_ in arts]
     for i,slot in enumerate(template.slots):
-        if i<len(arts):
-            name,img=arts[i]
-            with cols[i]:
-                st.image(img,caption=f"{slot.id}: {name}",width="stretch")
-                slot_face=st.radio(f"{slot.id} side",["Front","Rear"],index=0 if face=="Front" else 1,horizontal=True,key=f"face_{slot.id}")
-            assignments[slot.id]=(img,slot_face)
+        with cols[i]:
+            st.markdown(f"**{slot.id.replace('_',' ').title()}**")
+            selected_name=st.selectbox(
+                "Artwork",
+                artwork_names,
+                index=min(i,len(artwork_names)-1),
+                key=f"artwork_{slot.id}",
+            )
+            selected_index=artwork_names.index(selected_name)
+            name,img=arts[selected_index]
+            st.image(img,caption=name,width="stretch")
+            slot_face=st.radio(
+                "Side",
+                ["Front","Rear"],
+                index=0 if face=="Front" else 1,
+                horizontal=True,
+                key=f"face_{slot.id}",
+            )
+        assignments[slot.id]=(img,slot_face)
     if st.button("Render mockup",type="primary",width="stretch"):
         with st.spinner("Rendering locally…"):
             result=render(template,assignments)
