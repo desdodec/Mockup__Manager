@@ -63,6 +63,43 @@ def _canonical_surface(mask: np.ndarray, box, confidence: float) -> dict:
     }
 
 
+
+def _recover_canonical_bodies(rgb, found, expected_count):
+    """Recover missing mugs only in constrained blank-mug scenes.
+
+    Uses existing semantic detections as scale/vertical priors, then searches
+    unexplained image regions for large bright low-saturation upright bodies.
+    """
+    if not expected_count or len(found)>=expected_count or not found:return found
+    H,W=rgb.shape[:2]
+    hsv=cv2.cvtColor(rgb,cv2.COLOR_RGB2HSV)
+    white=cv2.inRange(hsv,np.array([0,0,150],np.uint8),np.array([179,70,255],np.uint8))
+    white=cv2.morphologyEx(white,cv2.MORPH_CLOSE,cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(17,17)),iterations=2)
+    ref_h=float(np.median([p["bbox"][3] for p in found]))
+    ref_w=float(np.median([p["cylinder"]["diameter"] for p in found]))
+    contours,_=cv2.findContours(white,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+    candidates=[]
+    for cnt in contours:
+        x,y,w,h=cv2.boundingRect(cnt)
+        if h<ref_h*.55 or h>ref_h*1.35 or w<ref_w*.55 or w>ref_w*1.45:continue
+        if h<=w*.75:continue
+        bbox=(float(x),float(y),float(w),float(h))
+        if any(_iou(bbox,p["bbox"])>.18 for p in found):continue
+        fill=cv2.contourArea(cnt)/max(w*h,1)
+        if fill<.45:continue
+        # Build a synthetic canonical body mask. This fallback is permitted only
+        # because generated scenes enforce upright blank straight-sided mugs.
+        gm=np.zeros((H,W),np.float32)
+        cv2.rectangle(gm,(x,y),(x+w,y+h),1.0,-1)
+        score=min(.79,.48+.30*fill)
+        try:candidates.append(_canonical_surface(gm,(x,y,x+w,y+h),score))
+        except ValueError:pass
+    candidates.sort(key=lambda p:p["confidence"],reverse=True)
+    for p in candidates:
+        if len(found)>=expected_count:break
+        if not any(_iou(p["bbox"],q["bbox"])>.18 for q in found):found.append(p)
+    return found
+
 def _semantic_detect(image:Image.Image,expected_count):
     from ultralytics import YOLO
     model=YOLO("yolo11n-seg.pt")
@@ -103,6 +140,7 @@ def _semantic_detect(image:Image.Image,expected_count):
                 try: found.append(_canonical_surface(gm,global_box,float(bx.conf[0].item())))
                 except ValueError: pass
 
+    found=_recover_canonical_bodies(rgb,found,expected_count)
     found.sort(key=lambda s:s["confidence"],reverse=True)
     if expected_count:found=found[:expected_count]
     found.sort(key=lambda s:s["bbox"][0])
