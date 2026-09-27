@@ -1,10 +1,9 @@
 from __future__ import annotations
-import io, os
+import io, os, json
 from pathlib import Path
 import streamlit as st
 from PIL import Image
 from ai.generator import OpenAISceneGenerator
-from ai.analyzer import OpenAIMugAnalyzer
 from compositing.renderer import render_scene
 from scenes.runtime import make_runtime_scene
 from template_editor.calibration import draw_calibration_overlay, rectangle_corners
@@ -49,34 +48,39 @@ if scene is None:
     st.stop()
 
 st.image(scene,width="stretch")
-st.subheader("2. AI scene analysis")
-analysis_key=st.session_state.get("api_key","")
-if source=="Upload my own scene" and not analysis_key:
-    analysis_key=st.text_input("OpenAI API key for scene analysis",type="password",key="analysis-key")
-    if analysis_key: st.session_state.api_key=analysis_key
-if st.session_state.get("detected") is None:
-    if analysis_key:
-        try:
-            with st.spinner("AI is locating and measuring every mug in the finished scene…"):
-                st.session_state.detected=OpenAIMugAnalyzer(analysis_key).analyze(scene,int(expected))
-        except Exception as exc:
-            st.error(f"AI scene analysis failed: {exc}")
-            st.session_state.detected=[]
-    else:
-        st.info("Enter an OpenAI API key to analyse this scene automatically.")
+st.subheader("2. Scene calibration")
+calfile=st.file_uploader("Upload ChatGPT calibration JSON",type=["json"],key="calibration")
+if calfile is not None:
+    try:
+        calibration=json.load(calfile)
+        iw=int(calibration.get("image",{}).get("width",scene.width))
+        ih=int(calibration.get("image",{}).get("height",scene.height))
+        if (iw,ih)!=scene.size:
+            st.error(f"Calibration is for {iw}×{ih}, but this scene is {scene.width}×{scene.height}.")
+            st.stop()
+        st.session_state.detected=calibration["slots"]
+    except Exception as exc:
+        st.error(f"Invalid calibration file: {exc}")
         st.stop()
+elif st.session_state.get("detected") is None:
+    st.info("Upload the calibration JSON supplied with this ChatGPT-created scene. Local detection remains available as a fallback.")
+    if st.button("Try local detector",width="stretch"):
+        with st.spinner("Running local fallback detector…"):
+            st.session_state.detected=detect_mug_surfaces(scene,int(expected))
+        st.rerun()
+    st.stop()
 slots=[dict(s) for s in st.session_state.detected]
 
 if len(slots)!=int(expected):
-    st.warning(f"AI analysis returned {len(slots)} of {int(expected)} requested mugs. Use Adjust detection only if needed.")
+    st.warning(f"Calibration contains {len(slots)} of {int(expected)} requested mugs. Use Adjust detection only if needed.")
     if not slots and detect_mug_surfaces.last_error:
-        st.caption("The AI analysis result was incomplete; the artwork renderer has not guessed missing mug positions.")
+        st.caption("The calibration is incomplete; the artwork renderer has not guessed missing mug positions.")
 else:
     low=sum(s["confidence"]<0.62 for s in slots)
     if low: st.warning(f"{low} mug detection(s) have low confidence. Check the overlay before rendering.")
-    else: st.success(f"Detected {len(slots)} mug surfaces automatically.")
+    else: st.success(f"Loaded {len(slots)} calibrated mug surfaces.")
 
-st.image(draw_calibration_overlay(scene,slots),caption="AI-analysed printable surfaces",width="stretch")
+st.image(draw_calibration_overlay(scene,slots),caption="Calibrated printable surfaces",width="stretch")
 
 with st.expander("Adjust detection (fallback only)",expanded=len(slots)!=int(expected)):
     st.caption("Normal scenes should not require this. These controls are only for failed detections.")
