@@ -67,7 +67,7 @@ def _semantic_detect(image:Image.Image,expected_count):
     from ultralytics import YOLO
     model=YOLO("yolo11n-seg.pt")
     rgb=np.asarray(image.convert("RGB"))
-    result=model.predict(source=rgb,conf=.20,imgsz=960,verbose=False)[0]
+    result=model.predict(source=rgb,conf=.08,imgsz=1280,verbose=False)[0]
     if result.boxes is None or result.masks is None:return []
     masks=result.masks.data.cpu().numpy(); found=[]
     for i,box in enumerate(result.boxes):
@@ -75,6 +75,34 @@ def _semantic_detect(image:Image.Image,expected_count):
         xy=tuple(map(float,box.xyxy[0].tolist()))
         m=cv2.resize(masks[i],(rgb.shape[1],rgb.shape[0]),interpolation=cv2.INTER_LINEAR)
         found.append(_canonical_surface(m,xy,float(box.conf[0].item())))
+    # Count-aware recovery: a clean generated scene may contain a mug the
+    # full-frame pass misses. Retry overlapping crops where each mug occupies
+    # substantially more detector pixels, then merge non-overlapping results.
+    if expected_count and len(found)<expected_count:
+        H,W=rgb.shape[:2]
+        for xa,xb in [(0,int(W*.62)),(int(W*.38),W)]:
+            crop=rgb[:,xa:xb]
+            retry=model.predict(source=crop,conf=.06,imgsz=1280,verbose=False)[0]
+            if retry.boxes is None or retry.masks is None: continue
+            rm=retry.masks.data.cpu().numpy()
+            for j,bx in enumerate(retry.boxes):
+                if str(retry.names[int(bx.cls[0].item())]).lower() not in {"cup","mug"}: continue
+                a,b,c,d=map(float,bx.xyxy[0].tolist()); global_box=(a+xa,b,c+xa,d)
+                candidate_bbox=(a+xa,b,c-a,d-b)
+                duplicate=False
+                for old in found:
+                    ox,oy,ow,oh=old["bbox"]
+                    ix=max(0,min(c+xa,ox+ow)-max(a+xa,ox))
+                    iy=max(0,min(d,oy+oh)-max(b,oy))
+                    inter=ix*iy
+                    union=(c-a)*(d-b)+ow*oh-inter
+                    if inter/max(union,1)>.40: duplicate=True; break
+                if duplicate: continue
+                local=cv2.resize(rm[j],(xb-xa,H),interpolation=cv2.INTER_LINEAR)
+                gm=np.zeros((H,W),np.float32); gm[:,xa:xb]=local
+                try: found.append(_canonical_surface(gm,global_box,float(bx.conf[0].item())))
+                except ValueError: pass
+
     found.sort(key=lambda s:s["confidence"],reverse=True)
     if expected_count:found=found[:expected_count]
     found.sort(key=lambda s:s["bbox"][0])
