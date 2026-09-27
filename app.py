@@ -1,144 +1,75 @@
 from __future__ import annotations
-import io, os, json
+from io import BytesIO
 from pathlib import Path
+import zipfile
 import streamlit as st
 from PIL import Image
-from ai.generator import OpenAISceneGenerator
-from compositing.renderer import render_scene
-from scenes.runtime import make_runtime_scene
-from template_editor.calibration import draw_calibration_overlay, rectangle_corners
-from vision.mug_detector import detect_mug_surfaces
+from v2 import Slot,Template,render,render_batch
 
-st.set_page_config(page_title="Mockup Manager",page_icon="☕",layout="wide")
-st.title("☕ AI Mug Mockup Manager")
-st.caption("Scene in → mug cylinders calibrated locally → your authoritative full-wrap artwork projected automatically.")
-st.session_state.setdefault("generated_scene",None)
-st.session_state.setdefault("api_key",os.getenv("OPENAI_API_KEY",""))
+st.set_page_config(page_title="Mockup Manager V2",layout="wide")
+st.title("Mockup Manager V2")
+st.caption("Template-first mug mockups: choose a scene, add artwork, render. No mug detection.")
+
 DEFAULT_SCENE=Path("H:/Downloads/ChatGPT Image Sep 27, 2026, 06_36_31 PM.png")
-DEFAULT_CAL_ART=Path("H:/Downloads/mockup_manager_cylinder_calibration_2048x849.png")
+DEFAULT_CAL=Path("H:/Downloads/mockup_manager_cylinder_calibration_2048x849.png")
 
-st.subheader("1. Choose a scene")
-source=st.radio("Scene source",["Upload my own scene","Generate with AI"],horizontal=True)
-expected=st.number_input("Number of mugs",1,10,2)
-if source=="Upload my own scene":
-    scene_path=st.text_input("Default scene path",value=str(DEFAULT_SCENE))
-    if st.button("Load default scene",width="stretch"):
-        p=Path(scene_path)
-        if p.exists():
-            st.session_state.generated_scene=Image.open(p).convert("RGBA")
-            st.session_state.scene_sig=("path",str(p),int(expected)); st.session_state.detected=None
-        else: st.error(f"Scene file not found: {p}")
-    f=st.file_uploader("Or upload a photograph containing blank white mugs",type=["png","jpg","jpeg"])
-    if f:
-        sig=(f.name,f.size,int(expected))
-        if st.session_state.get("scene_sig")!=sig:
-            st.session_state.generated_scene=Image.open(f).convert("RGBA")
-            st.session_state.scene_sig=sig
-            st.session_state.detected=None
-else:
-    prompt=st.text_area("Describe the scene","3 blank white mugs on a rustic West Yorkshire farmhouse table, old stone kitchen, soft window light, premium Etsy product photography")
-    c1,c2=st.columns(2)
-    ratio=c1.selectbox("Aspect ratio",["4:5","1:1","landscape"])
-    key=c2.text_input("OpenAI API key",value=st.session_state.api_key,type="password")
-    st.session_state.api_key=key
-    if st.button("Generate scene",type="primary",width="stretch"):
-        if not key: st.error("Enter an API key or set OPENAI_API_KEY.")
-        else:
-            try:
-                with st.spinner("Generating blank-mug scene…"):
-                    st.session_state.generated_scene=OpenAISceneGenerator(key).generate(prompt,int(expected),ratio).image
-                    st.session_state.scene_sig=("ai",prompt,int(expected),ratio)
-                    st.session_state.detected=None
-            except Exception as exc: st.error(f"Generation failed: {exc}")
+# Calibrated once for the user's 1536x1024 Yorkshire two-mug scene.
+YORKSHIRE_SLOTS=(
+    Slot("mug_01",(0.237,0.365,0.452,0.778),yaw_deg=-7.0),
+    Slot("mug_02",(0.561,0.372,0.778,0.786),yaw_deg=7.0),
+)
 
-scene=st.session_state.generated_scene
-if scene is None:
-    st.info("Upload or generate a blank-mug scene to begin.")
+st.sidebar.header("Template")
+scene_path=Path(st.sidebar.text_input("Scene image",str(DEFAULT_SCENE)))
+if not scene_path.exists():
+    st.error(f"Scene not found: {scene_path}")
     st.stop()
+template=Template("yorkshire_2","Yorkshire Garden · 2 mugs",scene_path,YORKSHIRE_SLOTS)
+st.sidebar.success("Yorkshire Garden · 2 mugs")
+st.sidebar.caption("Geometry is stored with the template. V2 does not rediscover mugs on every render.")
 
-st.image(scene,width="stretch")
-st.subheader("2. Scene calibration")
-calfile=st.file_uploader("Optional saved scene calibration JSON",type=["json"],key="calibration")
-if calfile is not None:
-    try:
-        calibration=json.load(calfile)
-        iw=int(calibration.get("image",{}).get("width",scene.width))
-        ih=int(calibration.get("image",{}).get("height",scene.height))
-        if (iw,ih)!=scene.size:
-            st.error(f"Calibration is for {iw}×{ih}, but this scene is {scene.width}×{scene.height}.")
-            st.stop()
-        st.session_state.detected=calibration["slots"]
-    except Exception as exc:
-        st.error(f"Invalid calibration file: {exc}")
+scene=Image.open(scene_path).convert("RGB")
+st.image(scene,caption="Template scene",width="stretch")
+
+st.subheader("Artwork")
+uploads=st.file_uploader("Upload full mug-print canvases",type=["png","jpg","jpeg"],accept_multiple_files=True)
+arts=[(u.name,Image.open(u).convert("RGBA")) for u in uploads] if uploads else []
+if DEFAULT_CAL.exists() and st.checkbox("Include calibration artwork",False):
+    arts.insert(0,(DEFAULT_CAL.name,Image.open(DEFAULT_CAL).convert("RGBA")))
+
+mode=st.radio("Mode",["Two-mug preview","Batch"],horizontal=True)
+face=st.radio("Artwork side",["Front","Rear"],horizontal=True)
+
+if mode=="Two-mug preview":
+    if not arts:
+        st.info("Upload one or two artwork files.")
         st.stop()
-elif st.session_state.get("detected") is None:
-    with st.spinner("Calibrating blank mug cylinders locally…"):
-        st.session_state.detected=detect_mug_surfaces(scene,int(expected))
-    if not st.session_state.detected:
-        st.warning("Automatic cylinder calibration failed. You can upload a saved calibration JSON or use the fallback controls below.")
-slots=[dict(s) for s in st.session_state.detected]
-
-if len(slots)!=int(expected):
-    st.warning(f"Calibration contains {len(slots)} of {int(expected)} requested mugs. Use Adjust detection only if needed.")
-    if not slots and detect_mug_surfaces.last_error:
-        st.caption("The calibration is incomplete; the artwork renderer has not guessed missing mug positions.")
+    cols=st.columns(2)
+    assignments={}
+    for i,slot in enumerate(template.slots):
+        if i<len(arts):
+            name,img=arts[i]
+            assignments[slot.id]=(img,face)
+            cols[i].image(img,caption=f"{slot.id}: {name}",width="stretch")
+    if st.button("Render mockup",type="primary",width="stretch"):
+        with st.spinner("Rendering locally…"):
+            result=render(template,assignments)
+        st.image(result,caption="Rendered mockup",width="stretch")
+        b=BytesIO(); result.convert("RGB").save(b,"JPEG",quality=95,subsampling=0)
+        st.download_button("Download JPG",b.getvalue(),"mockup.jpg","image/jpeg",width="stretch")
 else:
-    low=sum(s["confidence"]<0.62 for s in slots)
-    if low: st.warning(f"{low} mug detection(s) have low confidence. Check the overlay before rendering.")
-    else: st.success(f"Loaded {len(slots)} calibrated mug surfaces.")
-
-st.image(draw_calibration_overlay(scene,slots),caption="Calibrated physical mug cylinders",width="stretch")
-
-with st.expander("Adjust detection (fallback only)",expanded=len(slots)!=int(expected)):
-    st.caption("Normal scenes should not require this. These controls are only for failed detections.")
-    if st.button("Create fallback surfaces",width="stretch"):
-        w,h=scene.size
-        slots=[]
-        for i in range(int(expected)):
-            cx=int(w*(i+1)/(int(expected)+1)); cy=int(h*.55)
-            slots.append({"corners":rectangle_corners(cx,cy,max(40,int(w/(int(expected)+2)*.7)),max(40,int(h*.28))),"curvature":.30,"visible_fraction":.42,"confidence":0.0})
-        st.session_state.detected=slots
-        st.rerun()
-    for i,s in enumerate(slots):
-        with st.expander(f"Mug {i+1} correction"):
-            w,h=scene.size
-            pts=s["corners"]; cx=int(sum(p[0] for p in pts)/4); cy=int(sum(p[1] for p in pts)/4)
-            sw=int(max(p[0] for p in pts)-min(p[0] for p in pts)); sh=int(max(p[1] for p in pts)-min(p[1] for p in pts))
-            nx=st.slider("Centre X",0,w,cx,key=f"x{i}"); ny=st.slider("Centre Y",0,h,cy,key=f"y{i}")
-            nw=st.slider("Width",20,w,max(20,sw),key=f"w{i}"); nh=st.slider("Height",20,h,max(20,sh),key=f"h{i}")
-            s["corners"]=rectangle_corners(nx,ny,nw,nh)
-            s["curvature"]=st.slider("Curvature",0.0,.8,float(s.get("curvature",.3)),.01,key=f"c{i}")
-            s["visible_fraction"]=st.slider("Visible wrap",.2,.65,float(s.get("visible_fraction",.42)),.01,key=f"v{i}")
-    st.session_state.detected=slots
-
-if not slots:
-    st.error("No reliable mug surfaces were found. Open Adjust detection to provide fallback surfaces.")
-    st.stop()
-
-st.subheader("3. Upload artwork")
-cal_art_path=st.text_input("Default calibration artwork path",value=str(DEFAULT_CAL_ART))
-uploads=st.file_uploader("Complete mug-print canvases",type=["png","jpg","jpeg"],accept_multiple_files=True,key="art")
-arts={u.name:Image.open(u).convert("RGBA") for u in uploads} if uploads else {}
-cp=Path(cal_art_path)
-if cp.exists(): arts.setdefault(cp.name,Image.open(cp).convert("RGBA"))
-assignments={}; overrides={}; choices=["— none —",*arts]
-cols=st.columns(min(len(slots),3))
-for i,s in enumerate(slots):
-    with cols[i%len(cols)]:
-        st.markdown(f"**Mug {i+1}**")
-        default=i+1 if i<len(arts) else 0
-        chosen=st.selectbox("Artwork",choices,index=default,key=f"a{i}")
-        face=st.radio("Face",["Front","Rear"],horizontal=True,key=f"f{i}")
-        if chosen!="— none —": assignments[f"mug_{i+1:02d}"]=arts[chosen]
-        overrides[f"mug_{i+1:02d}"]={"view_angle":0 if face=="Front" else 180,"visible_fraction":s["visible_fraction"],"curvature":s["curvature"]}
-
-if assignments:
-    runtime=make_runtime_scene(scene,slots,Path(".runtime"))
-    result=render_scene(runtime,assignments,slot_overrides=overrides)
-    st.subheader("4. Final mockup")
-    st.image(result,width="stretch")
-    png=io.BytesIO(); result.save(png,"PNG")
-    jpg=io.BytesIO(); result.convert("RGB").save(jpg,"JPEG",quality=96)
-    d1,d2=st.columns(2)
-    d1.download_button("Download PNG",png.getvalue(),"mockup.png","image/png",width="stretch")
-    d2.download_button("Download JPG",jpg.getvalue(),"mockup.jpg","image/jpeg",width="stretch")
+    if not arts:
+        st.info("Upload artwork files. V2 fills two mugs per output.")
+        st.stop()
+    st.write(f"{len(arts)} designs → {(len(arts)+1)//2} mockups")
+    if st.button("Render batch",type="primary",width="stretch"):
+        with st.spinner("Rendering batch locally…"):
+            results=render_batch(template,arts,face.lower())
+        z=BytesIO()
+        with zipfile.ZipFile(z,"w",zipfile.ZIP_DEFLATED) as archive:
+            for label,img in results:
+                b=BytesIO(); img.convert("RGB").save(b,"JPEG",quality=95,subsampling=0)
+                archive.writestr(f"{label}.jpg",b.getvalue())
+        st.success(f"Rendered {len(results)} mockups.")
+        for label,img in results[:4]: st.image(img,caption=label,width="stretch")
+        st.download_button("Download all as ZIP",z.getvalue(),"mockups.zip","application/zip",width="stretch")
