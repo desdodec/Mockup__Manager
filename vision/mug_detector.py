@@ -64,6 +64,63 @@ def _canonical_surface(mask: np.ndarray, box, confidence: float) -> dict:
 
 
 
+def _iou(a,b):
+    ax,ay,aw,ah=a; bx,by,bw,bh=b
+    x1=max(ax,bx); y1=max(ay,by); x2=min(ax+aw,bx+bw); y2=min(ay+ah,by+bh)
+    inter=max(0,x2-x1)*max(0,y2-y1)
+    return inter/max(aw*ah+bw*bh-inter,1)
+
+def _white_body_candidates(rgb, expected_count):
+    """Detect constrained blank mug bodies directly, without COCO semantics."""
+    H,W=rgb.shape[:2]
+    hsv=cv2.cvtColor(rgb,cv2.COLOR_RGB2HSV)
+    mask=cv2.inRange(hsv,np.array([0,0,145],np.uint8),np.array([179,62,255],np.uint8))
+    mask=cv2.morphologyEx(mask,cv2.MORPH_CLOSE,cv2.getStructuringElement(cv2.MORPH_RECT,(21,9)),iterations=2)
+    n,labels,stats,_=cv2.connectedComponentsWithStats(mask,8)
+    candidates=[]
+    for k in range(1,n):
+        x,y,w,h,area=map(int,stats[k])
+        if h < H*.22 or w < W*.08 or h <= w*.65: continue
+        if area/(w*h) < .48: continue
+        # Handles may join the component. Estimate the solid cylindrical core
+        # from horizontal occupancy around the middle of the mug.
+        sub=(labels[y:y+h,x:x+w]==k).astype(np.uint8)
+        widths=[]
+        centres=[]
+        for yy in range(int(h*.20),int(h*.82)):
+            xs=np.flatnonzero(sub[yy])
+            if len(xs)<w*.25: continue
+            # Longest dense run is the body; handle is separated by thin necks.
+            runs=np.split(xs,np.where(np.diff(xs)>2)[0]+1)
+            run=max(runs,key=len)
+            if len(run)>=w*.25:
+                widths.append(len(run)); centres.append((run[0]+run[-1])/2+x)
+        if not widths: continue
+        body_w=float(np.percentile(widths,35))
+        cx=float(np.median(centres))
+        body_h=float(h)
+        # Physical straight-sided cylinder: close to full ceramic body, not a
+        # shrunken print-safe box. Artwork transparency supplies print margins.
+        top=float(y+h*.08); bottom=float(y+h*.91)
+        left=cx-body_w*.48; right=cx+body_w*.48
+        gm=np.zeros((H,W),np.float32)
+        cv2.rectangle(gm,(max(0,int(left)),max(0,int(top))),(min(W-1,int(right)),min(H-1,int(bottom))),1,-1)
+        try:
+            p=_canonical_surface(gm,(left,top,right,bottom),.82)
+            # Override the old safe-zone fitter with physical cylinder geometry.
+            rows,cols=7,13; theta=np.deg2rad(68); rad=(right-left)/2/np.sin(theta)
+            xs2=cx+rad*np.sin(np.linspace(-theta,theta,cols))
+            mesh=[[(float(xx),float(top+(bottom-top)*iy/(rows-1))) for xx in xs2] for iy in range(rows)]
+            p.update({"mesh":mesh,"corners":(mesh[0][0],mesh[0][-1],mesh[-1][-1],mesh[-1][0]),
+                      "axis":((cx,top),(cx,bottom)),"visible_fraction":.48,
+                      "bbox":(left,top,right-left,bottom-top),"detector":"blank-mug-body"})
+            candidates.append(p)
+        except ValueError: pass
+    candidates.sort(key=lambda p:p["bbox"][2]*p["bbox"][3],reverse=True)
+    if expected_count: candidates=candidates[:expected_count]
+    candidates.sort(key=lambda p:p["bbox"][0])
+    return candidates
+
 def _recover_canonical_bodies(rgb, found, expected_count):
     """Recover missing mugs only in constrained blank-mug scenes.
 
@@ -150,7 +207,13 @@ def _semantic_detect(image:Image.Image,expected_count):
 def detect_mug_surfaces(image:Image.Image,expected_count=None):
     try:
         detect_mug_surfaces.last_error=""
-        return _semantic_detect(image,expected_count)
+        rgb=np.asarray(image.convert("RGB"))
+        # Generated scenes are deliberately constrained to large blank white
+        # upright mugs, so body geometry is more useful than generic COCO class.
+        direct=_white_body_candidates(rgb,expected_count)
+        if expected_count and len(direct)==expected_count:return direct
+        semantic=_semantic_detect(image,expected_count)
+        return semantic if len(semantic)>=len(direct) else direct
     except Exception as exc:
         detect_mug_surfaces.last_error=f"{type(exc).__name__}: {exc}"
         return []
