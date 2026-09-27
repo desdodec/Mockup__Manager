@@ -24,9 +24,15 @@ scene_path=Path(st.sidebar.text_input("Scene image",str(DEFAULT_SCENE)))
 if not scene_path.exists():
     st.error(f"Scene not found: {scene_path}")
     st.stop()
-template=Template("yorkshire_2","Yorkshire Garden · 2 mugs",scene_path,YORKSHIRE_SLOTS)
 st.sidebar.success("Yorkshire Garden · 2 mugs")
 st.sidebar.caption("Geometry is stored with the template. V2 does not rediscover mugs on every render.")
+st.sidebar.divider()
+st.sidebar.subheader("Fine tune")
+scale=st.sidebar.slider("Artwork vertical scale",0.80,1.15,1.00,0.01)
+yshift=st.sidebar.slider("Artwork vertical position",-0.12,0.12,0.0,0.01)
+xshift=st.sidebar.slider("Artwork wrap position",-0.08,0.08,0.0,0.005)
+slots=tuple(Slot(x.id,x.box,yaw_deg=x.yaw_deg,print_top=x.print_top,print_bottom=x.print_bottom,visible_deg=x.visible_deg,scale=scale,offset_x=xshift,offset_y=yshift) for x in YORKSHIRE_SLOTS)
+template=Template("yorkshire_2","Yorkshire Garden · 2 mugs",scene_path,slots)
 
 scene=Image.open(scene_path).convert("RGB")
 st.image(scene,caption="Template scene",width="stretch")
@@ -57,6 +63,8 @@ if mode=="Two-mug preview":
         st.image(result,caption="Rendered mockup",width="stretch")
         b=BytesIO(); result.convert("RGB").save(b,"JPEG",quality=95,subsampling=0)
         st.download_button("Download JPG",b.getvalue(),"mockup.jpg","image/jpeg",width="stretch")
+        p=BytesIO(); result.save(p,"PNG")
+        st.download_button("Download PNG",p.getvalue(),"mockup.png","image/png",width="stretch")
 else:
     if not arts:
         st.info("Upload artwork files. V2 fills two mugs per output.")
