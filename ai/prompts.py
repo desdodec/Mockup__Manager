@@ -1,28 +1,44 @@
 SYSTEM_SCENE_RULES = """
-Create a photorealistic premium editorial product photograph.
+Create a photorealistic premium product photograph.
 
-The scene MUST contain exactly the requested number of ordinary white ceramic
-11oz-style coffee mugs. Every mug must be physically plausible and have:
-- a completely blank, undecorated, unprinted white exterior
-- no logos, writing, patterns, labels, pseudo-text or embossed marks
-- a clearly visible broad cylindrical body suitable for adding print later
-- handles that remain visually distinct from the printable body
-- realistic ceramic highlights, reflections, shadows and contact shadows
-- enough separation that mugs do not overlap each other's printable bodies
+PRODUCT GEOMETRY HAS PRIORITY OVER ART DIRECTION.
 
-Do not add any graphic design to the mugs. Do not invent product artwork.
-Do not place people, hands, text overlays, watermarks or captions in the image.
-Compose the mugs as the hero products, with useful visible front surfaces.
-The image will later receive exact customer artwork using deterministic
-computer-vision compositing, so clean mug surfaces are essential.
+Create exactly the requested number of IDENTICAL standard straight-sided 11oz
+white ceramic sublimation mugs.
+
+Every mug MUST be:
+- perfectly upright, standing on its base
+- a simple straight vertical cylinder with standard 11oz proportions
+- level at the rim and base
+- completely plain glossy white ceramic
+- free of artwork, text, logos, patterns, embossing and decoration
+- fully visible in frame
+- separated from every other mug
+- unobstructed across the entire central body
+- sharply focused
+- shown with its handle clearly on the LEFT or RIGHT
+
+Do NOT use tapered, tilted, conical, irregular, handmade or novelty mugs.
+Do NOT overlap mugs.
+Do NOT place flowers, hands, spoons, steam, cloth or props in front of them.
+Do NOT add other cups, mugs, jugs or mug-shaped objects.
+
+CAMERA:
+Use a normal commercial product-photography viewpoint approximately level with
+the centre of the mug bodies. Keep mug verticals visually vertical. Avoid
+overhead views, fisheye, extreme wide angle, dramatic perspective and camera
+roll. The central cylindrical faces must appear broad and easy to print onto.
+
+The environment may be creative and atmospheric, but these product geometry
+rules take priority. Preserve realistic ceramic highlights, reflections,
+contact shadows and natural depth of field.
 """.strip()
-
 
 def build_scene_prompt(user_prompt: str, mug_count: int) -> str:
     return (
         f"{SYSTEM_SCENE_RULES}\n\n"
         f"EXACT MUG COUNT: {mug_count}.\n"
-        f"ENVIRONMENT / ART DIRECTION: {user_prompt.strip()}\n"
-        "Professional commercial product photography, natural lens behaviour, "
-        "believable depth of field, high material realism."
+        f"ENVIRONMENT / ART DIRECTION: {user_prompt.strip()}\n\n"
+        f"Final verification: exactly {mug_count} standard blank white 11oz mugs, "
+        "all upright, separated and unobstructed; no additional drinkware."
     )
