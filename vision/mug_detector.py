@@ -117,7 +117,7 @@ def _white_body_candidates(rgb, expected_count):
         candidates.append({
           "corners":(mesh[0][0],mesh[0][-1],mesh[-1][-1],mesh[-1][0]),
           "mesh":mesh,"axis":((cx,top),(cx,bottom)),"handle_side":handle,
-          "curvature":0.0,"visible_fraction":.48,"confidence":.90,
+          "curvature":0.0,"visible_fraction":(136.0/360.0),"confidence":.90,
           "bbox":(left,top,right-left,bottom-top),"detector":"expected-count-body",
           "cylinder":{"diameter":right-left,"top":top,"bottom":bottom},
         })
