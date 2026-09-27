@@ -44,7 +44,7 @@ if DEFAULT_CAL.exists() and st.checkbox("Include calibration artwork",False):
     arts.insert(0,(DEFAULT_CAL.name,Image.open(DEFAULT_CAL).convert("RGBA")))
 
 mode=st.radio("Mode",["Two-mug preview","Batch"],horizontal=True)
-face=st.radio("Artwork side",["Front","Rear"],horizontal=True)
+face=st.radio("Default artwork side",["Front","Rear"],horizontal=True,help="Front and Rear are sampled from different positions on the same full wrap canvas.")
 
 if mode=="Two-mug preview":
     if not arts:
@@ -55,8 +55,10 @@ if mode=="Two-mug preview":
     for i,slot in enumerate(template.slots):
         if i<len(arts):
             name,img=arts[i]
-            assignments[slot.id]=(img,face)
-            cols[i].image(img,caption=f"{slot.id}: {name}",width="stretch")
+            with cols[i]:
+                st.image(img,caption=f"{slot.id}: {name}",width="stretch")
+                slot_face=st.radio(f"{slot.id} side",["Front","Rear"],index=0 if face=="Front" else 1,horizontal=True,key=f"face_{slot.id}")
+            assignments[slot.id]=(img,slot_face)
     if st.button("Render mockup",type="primary",width="stretch"):
         with st.spinner("Rendering locally…"):
             result=render(template,assignments)
