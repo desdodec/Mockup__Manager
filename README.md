@@ -1,31 +1,41 @@
-# Mockup Manager
+# Mockup Manager V2
 
-AI-assisted, deterministic mug mockup generator.
+Fast, local, deterministic mug mockup production.
 
-## Product rule
+## V2 rule
 
-**AI may invent the environment, but it must never be the source of truth for the product artwork.**
+Artwork and mug geometry are authoritative. Runtime AI detection is not part of
+the production render path.
 
-Uploaded artwork is treated as authoritative. The renderer applies it using deterministic image transforms rather than asking an image model to redraw the design.
+A scene is calibrated once as a template. Every later render reuses that known
+geometry, so generating another mockup is only:
 
-## MVP
+1. choose template;
+2. upload full mug-print artwork;
+3. choose Front or Rear;
+4. render/export.
 
-- Upload PNG/JPG artwork
-- Select a predefined scene
-- Assign artwork to mug slots
-- Apply cylindrical + perspective transforms
-- Preserve scene lighting over the print
-- Preview result
-- Export PNG/JPG
-- Experimental AI custom-scene adapter interface
+The supplied V2 app defaults to the two-mug Yorkshire Garden scene on the
+author's Windows workstation and supports two-artwork preview plus batch ZIP
+rendering.
+
+## Artwork
+
+Full 2048x849 production canvases are accepted without trimming. Front is
+centred at 25% of the circumference and Rear at 75%. Rendering samples the
+required angular window and maps it continuously to the calibrated cylinder.
 
 ## Run
 
-```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-streamlit run app.py
+```powershell
+git pull
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-The starter repository includes a generated placeholder scene so the complete pipeline can run without external assets. Replace it with a real blank-mug photograph and tune the slot JSON for production-quality results.
+## Architecture
+
+`v2/engine.py` is the production renderer. It has no YOLO, image-generation
+API, runtime mug detector, or mesh-reconstruction dependency. V1 modules remain
+in the repository for reference but are not imported by the V2 app.
