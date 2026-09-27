@@ -8,7 +8,7 @@ def extract_visible_wrap(
     artwork: Image.Image,
     *,
     view_angle: float = 0.0,
-    visible_fraction: float = 0.42,
+    visible_fraction: float = 136.0 / 360.0,
     output_width: int = 1200,
 ) -> Image.Image:
     """Sample a visible cylindrical window from a complete mug print canvas.
@@ -28,7 +28,7 @@ def extract_visible_wrap(
     # Treat the supplied image width as one complete circumference.
     # Front centre = 25% of the canvas; rear centre = 75%.
     centre = (0.25 + (view_angle / 360.0)) % 1.0
-    span = visible_fraction
+    # The visible fraction must describe the same angular span as the surface\n    # mesh. The standard mesh is +/-68 degrees => 136/360 circumference.\n    span = visible_fraction
 
     # Cylindrical sampling: equal screen-space steps correspond to increasingly
     # large source-angle changes toward the silhouette.
