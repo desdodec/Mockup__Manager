@@ -11,7 +11,7 @@ from vision.mug_detector import detect_mug_surfaces
 
 st.set_page_config(page_title="Mockup Manager",page_icon="☕",layout="wide")
 st.title("☕ AI Mug Mockup Manager")
-st.caption("Scene in → mugs detected → your authoritative print artwork wrapped automatically.")
+st.caption("Scene in → mug cylinders calibrated locally → your authoritative full-wrap artwork projected automatically.")
 st.session_state.setdefault("generated_scene",None)
 st.session_state.setdefault("api_key",os.getenv("OPENAI_API_KEY",""))
 
@@ -49,7 +49,7 @@ if scene is None:
 
 st.image(scene,width="stretch")
 st.subheader("2. Scene calibration")
-calfile=st.file_uploader("Upload ChatGPT calibration JSON",type=["json"],key="calibration")
+calfile=st.file_uploader("Optional saved scene calibration JSON",type=["json"],key="calibration")
 if calfile is not None:
     try:
         calibration=json.load(calfile)
@@ -63,12 +63,10 @@ if calfile is not None:
         st.error(f"Invalid calibration file: {exc}")
         st.stop()
 elif st.session_state.get("detected") is None:
-    st.info("Upload the calibration JSON supplied with this ChatGPT-created scene. Local detection remains available as a fallback.")
-    if st.button("Try local detector",width="stretch"):
-        with st.spinner("Running local fallback detector…"):
-            st.session_state.detected=detect_mug_surfaces(scene,int(expected))
-        st.rerun()
-    st.stop()
+    with st.spinner("Calibrating blank mug cylinders locally…"):
+        st.session_state.detected=detect_mug_surfaces(scene,int(expected))
+    if not st.session_state.detected:
+        st.warning("Automatic cylinder calibration failed. You can upload a saved calibration JSON or use the fallback controls below.")
 slots=[dict(s) for s in st.session_state.detected]
 
 if len(slots)!=int(expected):
