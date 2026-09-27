@@ -12,7 +12,7 @@ def draw_calibration_overlay(image:Image.Image,slots:list[dict])->Image.Image:
             if s.get("axis"):d.line(s["axis"],fill=(255,190,0,255),width=4)
             x,y=mesh[0][0]
             d.rounded_rectangle((x,y-34,x+150,y-6),radius=6,fill=(0,0,0,190))
-            d.text((x+8,y-29),f"Mug {n} · {s.get('handle_side','?')} handle",fill="white")
+            d.text((x+8,y-29),f"Mug {n} · {s.get('handle_side','?')} handle · cylinder",fill="white")
         else:
             p=[tuple(x) for x in s["corners"]]; d.polygon(p,fill=(30,144,255,45),outline=(30,144,255,255),width=4)
             x,y=p[0]; d.text((x,y-20),f"Mug {n}",fill="white")
