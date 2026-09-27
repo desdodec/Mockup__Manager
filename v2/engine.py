@@ -13,6 +13,10 @@ class Slot:
     print_top: float = 0.07
     print_bottom: float = 0.91
     visible_deg: float = 136.0
+    scale: float = 1.0
+    offset_x: float = 0.0
+    offset_y: float = 0.0
+    ink_strength: float = 0.94
 
 @dataclass(frozen=True)
 class Template:
@@ -41,7 +45,7 @@ def _project(art:Image.Image, size:tuple[int,int], slot:Slot, face:str)->Image.I
     iy0=max(0,int(top)); iy1=min(H,int(np.ceil(bottom)))
     if ix1<=ix0 or iy1<=iy0:return Image.new("RGBA",size,(0,0,0,0))
     centre=.25 if face.lower()=="front" else .75
-    centre=(centre+slot.yaw_deg/360.0)%1.0
+    centre=(centre+slot.yaw_deg/360.0+slot.offset_x)%1.0
     strip=_sample_wrap(art,centre,slot.visible_deg,1400)
     sh,sw=strip.shape[:2]
     yy,xx=np.mgrid[iy0:iy1,ix0:ix1].astype(np.float32)
@@ -49,7 +53,8 @@ def _project(art:Image.Image, size:tuple[int,int], slot:Slot, face:str)->Image.I
     theta=np.arcsin(xn)
     limit=np.deg2rad(slot.visible_deg/2)
     mapx=((theta+limit)/(2*limit)*(sw-1)).astype(np.float32)
-    mapy=((yy-top)/max(bottom-top,1)*(sh-1)).astype(np.float32)
+    v=((yy-top)/max(bottom-top,1)-.5)/max(slot.scale,0.05)+.5-slot.offset_y
+    mapy=(v*(sh-1)).astype(np.float32)
     valid=(np.abs(theta)<=limit)&(yy>=top)&(yy<=bottom)
     mapx=np.where(valid,mapx,-1).astype(np.float32)
     mapy=np.where(valid,mapy,-1).astype(np.float32)
@@ -64,8 +69,14 @@ def _ceramic_blend(scene:Image.Image, layer:Image.Image)->Image.Image:
     lum=(.2126*base[...,0]+.7152*base[...,1]+.0722*base[...,2])[...,None]
     # Retain scene shading/highlights without altering artwork geometry.
     shade=np.clip(.72+.38*lum,.72,1.08)
+    # Sublimation ink inherits ceramic illumination; retain a controlled amount
+    # of the original mug highlight instead of painting an opaque sticker.
     rgb=np.clip(lay[...,:3]*shade,0,1)
-    comp=base*(1-alpha)+rgb*alpha
+    spec=np.clip((lum-.72)/.28,0,1)*0.10
+    rgb=np.clip(rgb*(1-spec)+base*spec,0,1)
+    strength=.94
+    effective_alpha=alpha*strength
+    comp=base*(1-effective_alpha)+rgb*effective_alpha
     return Image.fromarray((comp*255).astype(np.uint8),"RGB").convert("RGBA")
 
 def render(template:Template, assignments:dict[str,tuple[Image.Image,str]])->Image.Image:
