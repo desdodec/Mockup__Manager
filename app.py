@@ -4,6 +4,7 @@ from pathlib import Path
 import streamlit as st
 from PIL import Image
 from ai.generator import OpenAISceneGenerator
+from ai.analyzer import OpenAIMugAnalyzer
 from compositing.renderer import render_scene
 from scenes.runtime import make_runtime_scene
 from template_editor.calibration import draw_calibration_overlay, rectangle_corners
@@ -13,6 +14,7 @@ st.set_page_config(page_title="Mockup Manager",page_icon="☕",layout="wide")
 st.title("☕ AI Mug Mockup Manager")
 st.caption("Scene in → mugs detected → your authoritative print artwork wrapped automatically.")
 st.session_state.setdefault("generated_scene",None)
+st.session_state.setdefault("api_key",os.getenv("OPENAI_API_KEY",""))
 
 st.subheader("1. Choose a scene")
 source=st.radio("Scene source",["Upload my own scene","Generate with AI"],horizontal=True)
@@ -29,7 +31,8 @@ else:
     prompt=st.text_area("Describe the scene","3 blank white mugs on a rustic West Yorkshire farmhouse table, old stone kitchen, soft window light, premium Etsy product photography")
     c1,c2=st.columns(2)
     ratio=c1.selectbox("Aspect ratio",["4:5","1:1","landscape"])
-    key=c2.text_input("OpenAI API key",value=os.getenv("OPENAI_API_KEY",""),type="password")
+    key=c2.text_input("OpenAI API key",value=st.session_state.api_key,type="password")
+    st.session_state.api_key=key
     if st.button("Generate scene",type="primary",width="stretch"):
         if not key: st.error("Enter an API key or set OPENAI_API_KEY.")
         else:
@@ -46,22 +49,34 @@ if scene is None:
     st.stop()
 
 st.image(scene,width="stretch")
-st.subheader("2. Automatic mug analysis")
+st.subheader("2. AI scene analysis")
+analysis_key=st.session_state.get("api_key","")
+if source=="Upload my own scene" and not analysis_key:
+    analysis_key=st.text_input("OpenAI API key for scene analysis",type="password",key="analysis-key")
+    if analysis_key: st.session_state.api_key=analysis_key
 if st.session_state.get("detected") is None:
-    with st.spinner("Finding printable mug surfaces…"):
-        st.session_state.detected=detect_mug_surfaces(scene,int(expected))
+    if analysis_key:
+        try:
+            with st.spinner("AI is locating and measuring every mug in the finished scene…"):
+                st.session_state.detected=OpenAIMugAnalyzer(analysis_key).analyze(scene,int(expected))
+        except Exception as exc:
+            st.error(f"AI scene analysis failed: {exc}")
+            st.session_state.detected=[]
+    else:
+        st.info("Enter an OpenAI API key to analyse this scene automatically.")
+        st.stop()
 slots=[dict(s) for s in st.session_state.detected]
 
 if len(slots)!=int(expected):
-    st.warning(f"Detected {len(slots)} of {int(expected)} requested mugs. Use Adjust detection for this scene.")
+    st.warning(f"AI analysis returned {len(slots)} of {int(expected)} requested mugs. Use Adjust detection only if needed.")
     if not slots and detect_mug_surfaces.last_error:
-        st.caption(f"Semantic detector error: {detect_mug_surfaces.last_error}")
+        st.caption("The AI analysis result was incomplete; the artwork renderer has not guessed missing mug positions.")
 else:
     low=sum(s["confidence"]<0.62 for s in slots)
     if low: st.warning(f"{low} mug detection(s) have low confidence. Check the overlay before rendering.")
     else: st.success(f"Detected {len(slots)} mug surfaces automatically.")
 
-st.image(draw_calibration_overlay(scene,slots),caption="Automatically detected printable surfaces",width="stretch")
+st.image(draw_calibration_overlay(scene,slots),caption="AI-analysed printable surfaces",width="stretch")
 
 with st.expander("Adjust detection (fallback only)",expanded=len(slots)!=int(expected)):
     st.caption("Normal scenes should not require this. These controls are only for failed detections.")
