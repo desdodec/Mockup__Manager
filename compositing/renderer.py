@@ -5,7 +5,7 @@ from scenes.models import Scene
 from .curvature import cylindrical_warp
 from .lighting import apply_scene_lighting
 from .perspective import warp_to_canvas
-from .mesh import warp_to_surface_mesh
+from .mesh import warp_to_surface_mesh, warp_to_cylinder
 from .wrap import extract_visible_wrap
 
 def render_scene(scene:Scene,assignments:Mapping[str,Image.Image],*,slot_overrides:Mapping[str,dict]|None=None)->Image.Image:
@@ -20,7 +20,11 @@ def render_scene(scene:Scene,assignments:Mapping[str,Image.Image],*,slot_overrid
         if slot.mesh:
             # Mesh already models photographed body geometry. Do not apply the
             # old second curvature transform (which double-warped the artwork).
-            layer=warp_to_surface_mesh(visible,[list(r) for r in slot.mesh],base.size)
+            mesh=[list(r) for r in slot.mesh]
+            if str(getattr(slot,"handle_side","unknown")) in {"left","right"}:
+                layer=warp_to_cylinder(visible,mesh,base.size)
+            else:
+                layer=warp_to_surface_mesh(visible,mesh,base.size)
         else:
             curved=cylindrical_warp(visible,float(o.get("curvature",slot.curvature)))
             layer=warp_to_canvas(curved,tuple(o.get("corners",slot.corners)),base.size)
