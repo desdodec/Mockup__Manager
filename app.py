@@ -14,12 +14,21 @@ st.title("☕ AI Mug Mockup Manager")
 st.caption("Scene in → mug cylinders calibrated locally → your authoritative full-wrap artwork projected automatically.")
 st.session_state.setdefault("generated_scene",None)
 st.session_state.setdefault("api_key",os.getenv("OPENAI_API_KEY",""))
+DEFAULT_SCENE=Path("H:/Downloads/ChatGPT Image Sep 27, 2026, 06_36_31 PM.png")
+DEFAULT_CAL_ART=Path("H:/Downloads/mockup_manager_cylinder_calibration_2048x849.png")
 
 st.subheader("1. Choose a scene")
 source=st.radio("Scene source",["Upload my own scene","Generate with AI"],horizontal=True)
-expected=st.number_input("Number of mugs",1,10,3)
+expected=st.number_input("Number of mugs",1,10,2)
 if source=="Upload my own scene":
-    f=st.file_uploader("Upload a photograph containing blank white mugs",type=["png","jpg","jpeg"])
+    scene_path=st.text_input("Default scene path",value=str(DEFAULT_SCENE))
+    if st.button("Load default scene",width="stretch"):
+        p=Path(scene_path)
+        if p.exists():
+            st.session_state.generated_scene=Image.open(p).convert("RGBA")
+            st.session_state.scene_sig=("path",str(p),int(expected)); st.session_state.detected=None
+        else: st.error(f"Scene file not found: {p}")
+    f=st.file_uploader("Or upload a photograph containing blank white mugs",type=["png","jpg","jpeg"])
     if f:
         sig=(f.name,f.size,int(expected))
         if st.session_state.get("scene_sig")!=sig:
@@ -107,8 +116,11 @@ if not slots:
     st.stop()
 
 st.subheader("3. Upload artwork")
+cal_art_path=st.text_input("Default calibration artwork path",value=str(DEFAULT_CAL_ART))
 uploads=st.file_uploader("Complete mug-print canvases",type=["png","jpg","jpeg"],accept_multiple_files=True,key="art")
 arts={u.name:Image.open(u).convert("RGBA") for u in uploads} if uploads else {}
+cp=Path(cal_art_path)
+if cp.exists(): arts.setdefault(cp.name,Image.open(cp).convert("RGBA"))
 assignments={}; overrides={}; choices=["— none —",*arts]
 cols=st.columns(min(len(slots),3))
 for i,s in enumerate(slots):
