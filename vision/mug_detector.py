@@ -71,53 +71,64 @@ def _iou(a,b):
     return inter/max(aw*ah+bw*bh-inter,1)
 
 def _white_body_candidates(rgb, expected_count):
-    """Detect constrained blank mug bodies directly, without COCO semantics."""
+    """Segment large blank mug bodies using expected count and body density.
+
+    In constrained scenes a mug body is a tall, dense low-saturation component.
+    Handles may be part of the same component, so body width is recovered from
+    columns that remain white through most of the component height.
+    """
     H,W=rgb.shape[:2]
     hsv=cv2.cvtColor(rgb,cv2.COLOR_RGB2HSV)
-    mask=cv2.inRange(hsv,np.array([0,0,145],np.uint8),np.array([179,62,255],np.uint8))
-    mask=cv2.morphologyEx(mask,cv2.MORPH_CLOSE,cv2.getStructuringElement(cv2.MORPH_RECT,(21,9)),iterations=2)
-    n,labels,stats,_=cv2.connectedComponentsWithStats(mask,8)
+    white=cv2.inRange(hsv,np.array([0,0,150],np.uint8),np.array([179,55,255],np.uint8))
+    n,labels,stats,_=cv2.connectedComponentsWithStats(white,8)
     candidates=[]
     for k in range(1,n):
         x,y,w,h,area=map(int,stats[k])
-        if h < H*.22 or w < W*.08 or h <= w*.65: continue
-        if area/(w*h) < .48: continue
-        # Handles may join the component. Estimate the solid cylindrical core
-        # from horizontal occupancy around the middle of the mug.
-        sub=(labels[y:y+h,x:x+w]==k).astype(np.uint8)
-        widths=[]
-        centres=[]
-        for yy in range(int(h*.20),int(h*.82)):
-            xs=np.flatnonzero(sub[yy])
-            if len(xs)<w*.25: continue
-            # Longest dense run is the body; handle is separated by thin necks.
-            runs=np.split(xs,np.where(np.diff(xs)>2)[0]+1)
-            run=max(runs,key=len)
-            if len(run)>=w*.25:
-                widths.append(len(run)); centres.append((run[0]+run[-1])/2+x)
-        if not widths: continue
-        body_w=float(np.percentile(widths,35))
-        cx=float(np.median(centres))
-        body_h=float(h)
-        # Physical straight-sided cylinder: close to full ceramic body, not a
-        # shrunken print-safe box. Artwork transparency supplies print margins.
-        top=float(y+h*.08); bottom=float(y+h*.91)
-        left=cx-body_w*.48; right=cx+body_w*.48
-        gm=np.zeros((H,W),np.float32)
-        cv2.rectangle(gm,(max(0,int(left)),max(0,int(top))),(min(W-1,int(right)),min(H-1,int(bottom))),1,-1)
-        try:
-            p=_canonical_surface(gm,(left,top,right,bottom),.82)
-            # Override the old safe-zone fitter with physical cylinder geometry.
-            rows,cols=7,13; theta=np.deg2rad(68); rad=(right-left)/2/np.sin(theta)
-            xs2=cx+rad*np.sin(np.linspace(-theta,theta,cols))
-            mesh=[[(float(xx),float(top+(bottom-top)*iy/(rows-1))) for xx in xs2] for iy in range(rows)]
-            p.update({"mesh":mesh,"corners":(mesh[0][0],mesh[0][-1],mesh[-1][-1],mesh[-1][0]),
-                      "axis":((cx,top),(cx,bottom)),"visible_fraction":.48,
-                      "bbox":(left,top,right-left,bottom-top),"detector":"blank-mug-body"})
-            candidates.append(p)
-        except ValueError: pass
+        if h < H*.25 or area < H*W*.025: continue
+        sub=(labels[y:y+h,x:x+w]==k)
+        col_occ=sub.mean(axis=0)
+        dense=np.flatnonzero(col_occ>.72)
+        if dense.size<40: continue
+        runs=np.split(dense,np.where(np.diff(dense)>1)[0]+1)
+        run=max(runs,key=len)
+        if len(run)<W*.08: continue
+        left=float(x+run[0]); right=float(x+run[-1])
+        cx=(left+right)/2
+
+        # Recover top/base from rows substantially occupied by this component.
+        row_occ=sub[:,run[0]:run[-1]+1].mean(axis=1)
+        dense_y=np.flatnonzero(row_occ>.55)
+        if dense_y.size<40: continue
+        yruns=np.split(dense_y,np.where(np.diff(dense_y)>1)[0]+1)
+        yrun=max(yruns,key=len)
+        top=float(y+yrun[0]); bottom=float(y+yrun[-1])
+        if bottom-top < H*.22: continue
+
+        # Component extension beyond the dense cylinder identifies handle side.
+        left_extension=left-x
+        right_extension=(x+w-1)-right
+        handle="left" if left_extension>right_extension*1.20 else "right" if right_extension>left_extension*1.20 else "unknown"
+
+        rows,cols=7,13
+        theta=np.deg2rad(68.0)
+        radius=((right-left)/2)/np.sin(theta)
+        xs=cx+radius*np.sin(np.linspace(-theta,theta,cols))
+        mesh=[[(float(xx),float(top+(bottom-top)*iy/(rows-1))) for xx in xs] for iy in range(rows)]
+        candidates.append({
+          "corners":(mesh[0][0],mesh[0][-1],mesh[-1][-1],mesh[-1][0]),
+          "mesh":mesh,"axis":((cx,top),(cx,bottom)),"handle_side":handle,
+          "curvature":0.0,"visible_fraction":.48,"confidence":.90,
+          "bbox":(left,top,right-left,bottom-top),"detector":"expected-count-body",
+          "cylinder":{"diameter":right-left,"top":top,"bottom":bottom},
+        })
+
+    # Prefer similarly sized large cylinders; expected count is a hard target.
     candidates.sort(key=lambda p:p["bbox"][2]*p["bbox"][3],reverse=True)
-    if expected_count: candidates=candidates[:expected_count]
+    if expected_count and len(candidates)>=expected_count:
+        pool=candidates[:max(expected_count*3,expected_count)]
+        med=np.median([p["bbox"][2]*p["bbox"][3] for p in pool])
+        pool.sort(key=lambda p:abs(p["bbox"][2]*p["bbox"][3]-med))
+        candidates=pool[:expected_count]
     candidates.sort(key=lambda p:p["bbox"][0])
     return candidates
 
