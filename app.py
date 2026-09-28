@@ -1,6 +1,7 @@
 from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
+import json
 import zipfile
 import streamlit as st
 from PIL import Image
@@ -9,96 +10,112 @@ from v2.template_builder import run_builder
 
 st.set_page_config(page_title="Mockup Manager V2",layout="wide")
 st.title("Mockup Manager V2")
-st.caption("Template-first mug mockups: marker scenes auto-detect printable mug bodies; rendering stays deterministic.")
+st.caption("Template-first mug mockups: load a template, assign artwork to each mug, render locally.")
+
 workspace=st.sidebar.radio("Workspace",["Mockup Generator","Template Builder"])
 if workspace=="Template Builder":
     run_builder()
     st.stop()
 
-DEFAULT_SCENE=Path("H:/Downloads/ChatGPT Image Sep 27, 2026, 06_36_31 PM.png")
-DEFAULT_CAL=Path("H:/Downloads/mockup_manager_cylinder_calibration_2048x849.png")
-
-# Calibrated once for the user's 1536x1024 Yorkshire two-mug scene.
-YORKSHIRE_SLOTS=(
-    Slot("mug_01",(0.237,0.365,0.452,0.778),yaw_deg=-7.0),
-    Slot("mug_02",(0.561,0.372,0.778,0.786),yaw_deg=7.0),
-)
-
 st.sidebar.header("Template")
-scene_path=Path(st.sidebar.text_input("Scene image",str(DEFAULT_SCENE)))
-if not scene_path.exists():
-    st.error(f"Scene not found: {scene_path}")
+template_upload=st.sidebar.file_uploader("Template JSON",type=["json"],key="generator_template")
+scene_upload=st.sidebar.file_uploader("Template scene image",type=["png","jpg","jpeg"],key="generator_scene")
+
+if not template_upload or not scene_upload:
+    st.info("Upload the saved .mockup.json template and the same background scene image used to create it.")
     st.stop()
-st.sidebar.success("Yorkshire Garden · 2 mugs")
-st.sidebar.caption("Geometry is stored with the template. V2 does not rediscover mugs on every render.")
+
+try:
+    payload=json.loads(template_upload.getvalue().decode("utf-8"))
+    scene=Image.open(BytesIO(scene_upload.getvalue())).convert("RGB")
+    marker=payload.get("detection")=="magenta-marker"
+    slots=tuple(
+        Slot(
+            item.get("id",f"mug_{i:02d}"),
+            tuple(float(v) for v in item["box"]),
+            print_top=float(item.get("print_top",0.0 if marker else 0.07)),
+            print_bottom=float(item.get("print_bottom",1.0 if marker else 0.91)),
+            marker_mask=bool(item.get("marker_mask",marker)),
+        )
+        for i,item in enumerate(payload["slots"],1)
+    )
+except Exception as exc:
+    st.error(f"Could not load template: {exc}")
+    st.stop()
+
+# Render expects a path; cache the uploaded scene locally for this session.
+scene_path=Path(".mockup_manager_active_scene.png")
+scene.save(scene_path)
+template=Template("uploaded",payload.get("name","Uploaded template"),scene_path,slots)
+
+st.sidebar.success(f"{template.name} · {len(slots)} mug{'s' if len(slots)!=1 else ''}")
+st.sidebar.caption("Marker templates use their detected printable mug regions automatically.")
 st.sidebar.divider()
 st.sidebar.subheader("Fine tune")
 scale=st.sidebar.slider("Artwork vertical scale",0.80,1.15,1.00,0.01)
 yshift=st.sidebar.slider("Artwork vertical position",-0.12,0.12,0.0,0.01)
 xshift=st.sidebar.slider("Artwork wrap position",-0.08,0.08,0.0,0.005)
-slots=tuple(Slot(x.id,x.box,yaw_deg=x.yaw_deg,print_top=x.print_top,print_bottom=x.print_bottom,visible_deg=x.visible_deg,scale=scale,offset_x=xshift,offset_y=yshift) for x in YORKSHIRE_SLOTS)
-template=Template("yorkshire_2","Yorkshire Garden · 2 mugs",scene_path,slots)
+slots=tuple(
+    Slot(x.id,x.box,yaw_deg=x.yaw_deg,print_top=x.print_top,print_bottom=x.print_bottom,
+         visible_deg=x.visible_deg,scale=scale,offset_x=xshift,offset_y=yshift,
+         ink_strength=x.ink_strength,marker_mask=x.marker_mask)
+    for x in slots
+)
+template=Template("uploaded",template.name,scene_path,slots)
 
-scene=Image.open(scene_path).convert("RGB")
-st.image(scene,caption="Template scene",width="stretch")
+st.image(scene,caption=f"{template.name} — {len(slots)} mugs",width="stretch")
 
 st.subheader("Artwork")
-uploads=st.file_uploader("Upload full mug-print canvases",type=["png","jpg","jpeg"],accept_multiple_files=True)
-arts=[(u.name,Image.open(u).convert("RGBA")) for u in uploads] if uploads else []
-if DEFAULT_CAL.exists() and st.checkbox("Include calibration artwork",False):
-    arts.insert(0,(DEFAULT_CAL.name,Image.open(DEFAULT_CAL).convert("RGBA")))
+uploads=st.file_uploader(
+    "Upload full mug-print canvases",
+    type=["png","jpg","jpeg"],
+    accept_multiple_files=True,
+    help="Upload the original full wrap files. Front and Rear are sampled from the same production canvas.",
+)
+arts=[(u.name,Image.open(BytesIO(u.getvalue())).convert("RGBA")) for u in uploads] if uploads else []
+if not arts:
+    st.info("Upload one or more full mug-print artwork files.")
+    st.stop()
 
-mode=st.radio("Mode",["Two-mug preview","Batch"],horizontal=True)
-face=st.radio("Default artwork side",["Front","Rear"],horizontal=True,help="Front and Rear are sampled from different positions on the same full wrap canvas.")
+mode=st.radio("Mode",["Assign mugs","Batch"],horizontal=True)
+default_face=st.radio("Default side",["Front","Rear"],horizontal=True)
 
-if mode=="Two-mug preview":
-    if not arts:
-        st.info("Upload one or more artwork files. Each mug can independently use any uploaded artwork and its Front or Rear side.")
-        st.stop()
-    cols=st.columns(2)
+if mode=="Assign mugs":
+    st.subheader("Mug assignments")
+    names=[name for name,_ in arts]
     assignments={}
-    artwork_names=[name for name,_ in arts]
-    for i,slot in enumerate(template.slots):
-        with cols[i]:
-            st.markdown(f"**{slot.id.replace('_',' ').title()}**")
-            selected_name=st.selectbox(
-                "Artwork",
-                artwork_names,
-                index=min(i,len(artwork_names)-1),
-                key=f"artwork_{slot.id}",
-            )
-            selected_index=artwork_names.index(selected_name)
-            name,img=arts[selected_index]
-            st.image(img,caption=name,width="stretch")
-            slot_face=st.radio(
-                "Side",
-                ["Front","Rear"],
-                index=0 if face=="Front" else 1,
-                horizontal=True,
-                key=f"face_{slot.id}",
-            )
-        assignments[slot.id]=(img,slot_face)
+    cols=st.columns(min(len(slots),4))
+    for i,slot in enumerate(slots):
+        with cols[i % len(cols)]:
+            st.markdown(f"**Mug {i+1}**")
+            selected=st.selectbox("Artwork",names,index=min(i,len(names)-1),key=f"artwork_{slot.id}")
+            img=arts[names.index(selected)][1]
+            st.image(img,caption=selected,width="stretch")
+            side=st.radio("Side",["Front","Rear"],index=0 if default_face=="Front" else 1,
+                          horizontal=True,key=f"face_{slot.id}")
+            assignments[slot.id]=(img,side)
+
     if st.button("Render mockup",type="primary",width="stretch"):
         with st.spinner("Rendering locally…"):
             result=render(template,assignments)
         st.image(result,caption="Rendered mockup",width="stretch")
-        b=BytesIO(); result.convert("RGB").save(b,"JPEG",quality=95,subsampling=0)
-        st.download_button("Download JPG",b.getvalue(),"mockup.jpg","image/jpeg",width="stretch")
-        p=BytesIO(); result.save(p,"PNG")
-        st.download_button("Download PNG",p.getvalue(),"mockup.png","image/png",width="stretch")
+        jpg=BytesIO(); result.convert("RGB").save(jpg,"JPEG",quality=95,subsampling=0)
+        png=BytesIO(); result.save(png,"PNG")
+        a,b=st.columns(2)
+        a.download_button("Download JPG",jpg.getvalue(),"mockup.jpg","image/jpeg",width="stretch")
+        b.download_button("Download PNG",png.getvalue(),"mockup.png","image/png",width="stretch")
 else:
-    if not arts:
-        st.info("Upload artwork files. V2 fills two mugs per output.")
-        st.stop()
-    st.write(f"{len(arts)} designs → {(len(arts)+1)//2} mockups")
+    st.write(f"{len(arts)} designs · {len(slots)} mugs per output · {(len(arts)+len(slots)-1)//len(slots)} mockups")
+    st.caption("Batch fills mugs left-to-right using the uploaded artwork order. The Default side applies to every mug in the batch.")
     if st.button("Render batch",type="primary",width="stretch"):
         with st.spinner("Rendering batch locally…"):
-            results=render_batch(template,arts,face.lower())
+            results=render_batch(template,arts,default_face.lower())
         z=BytesIO()
         with zipfile.ZipFile(z,"w",zipfile.ZIP_DEFLATED) as archive:
             for label,img in results:
                 b=BytesIO(); img.convert("RGB").save(b,"JPEG",quality=95,subsampling=0)
                 archive.writestr(f"{label}.jpg",b.getvalue())
         st.success(f"Rendered {len(results)} mockups.")
-        for label,img in results[:4]: st.image(img,caption=label,width="stretch")
+        for label,img in results[:4]:
+            st.image(img,caption=label,width="stretch")
         st.download_button("Download all as ZIP",z.getvalue(),"mockups.zip","application/zip",width="stretch")
