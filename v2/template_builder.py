@@ -84,10 +84,20 @@ def run_builder():
     if st.button("Test detected mugs",type="primary",width="stretch"):
         tmp=Path(".mockup_manager_preview_scene.png"); scene.save(tmp)
         template=Template("preview",name or "New template",tmp,slots)
-        cal=Image.new("RGBA",(2048,849),(255,255,255,255)); cd=ImageDraw.Draw(cal)
-        cd.line((512,0,512,849),fill=(255,0,0,255),width=18)
-        for x in range(0,2048,128): cd.line((x,0,x,849),fill=(100,100,100,255),width=3)
-        st.image(render(template,{slot.id:(cal,"Front") for slot in slots}),caption="Calibration preview on every detected mug",width="stretch")
+        # Build calibration marks only across the exact FRONT angular window.
+        # This guarantees every slot receives the same marks regardless of full-wrap sampling.
+        cal=Image.new("RGBA",(2048,849),(245,245,245,255)); cd=ImageDraw.Draw(cal)
+        visible=slots[0].visible_deg if slots else 136.0
+        centre=512
+        half=visible/360.0*2048/2
+        # Seven equally spaced angular reference lines: centre + three each side.
+        for j in range(-3,4):
+            x=int(round(centre + (j/3.0)*half))
+            if j==0:
+                cd.line((x,0,x,849),fill=(220,0,0,255),width=12)
+            else:
+                cd.line((x,0,x,849),fill=(95,95,95,255),width=4)
+        st.image(render(template,{slot.id:(cal,"Front") for slot in slots}),caption="Calibration preview — each mug should show the same 7 angular reference lines (red centre + 3 grey each side).",width="stretch")
 
     payload={"version":2,"name":name or "New template","detection":"magenta-marker" if mode=="Automatic marker detection" else "manual","scene_filename":upload.name,"slots":[{"id":slot.id,"box":[round(v,6) for v in slot.box],"marker_mask":slot.marker_mask,"print_top":slot.print_top,"print_bottom":slot.print_bottom} for slot in slots]}
     st.download_button("3. Save template",json.dumps(payload,indent=2),file_name=f"{(name or 'template').replace(' ','_')}.mockup.json",mime="application/json",width="stretch")
