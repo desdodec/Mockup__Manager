@@ -12,6 +12,7 @@ class Slot:
     yaw_deg: float = 0.0
     print_top: float = 0.07
     print_bottom: float = 0.91
+    marker_mask: bool = False
     visible_deg: float = 136.0
     scale: float = 1.0
     offset_x: float = 0.0
@@ -39,6 +40,9 @@ def _project(art:Image.Image, size:tuple[int,int], slot:Slot, face:str)->Image.I
     left,right=x0*W,x1*W
     top=(y0+(y1-y0)*slot.print_top)*H
     bottom=(y0+(y1-y0)*slot.print_bottom)*H
+    if slot.marker_mask:
+        top=y0*H
+        bottom=y1*H
     cx=(left+right)/2
     radius=max((right-left)/2,1)
     ix0=max(0,int(left)); ix1=min(W,int(np.ceil(right)))
@@ -61,6 +65,24 @@ def _project(art:Image.Image, size:tuple[int,int], slot:Slot, face:str)->Image.I
     warped=cv2.remap(strip,mapx,mapy,cv2.INTER_LANCZOS4,borderMode=cv2.BORDER_CONSTANT,borderValue=(0,0,0,0))
     out=np.zeros((H,W,4),np.uint8); out[iy0:iy1,ix0:ix1]=warped
     return Image.fromarray(out,"RGBA")
+
+def _magenta_mask(scene:Image.Image, slot:Slot)->np.ndarray:
+    """Exact printable silhouette for a marker slot, restricted to its component box."""
+    rgb=np.asarray(scene.convert("RGB"))
+    hsv=cv2.cvtColor(rgb,cv2.COLOR_RGB2HSV)
+    mask=cv2.inRange(hsv,np.array([140,95,70],np.uint8),np.array([179,255,255],np.uint8))
+    H,W=mask.shape
+    x0,y0,x1,y1=slot.box
+    keep=np.zeros_like(mask)
+    ix0=max(0,int(x0*W)-3); ix1=min(W,int(np.ceil(x1*W))+3)
+    iy0=max(0,int(y0*H)-3); iy1=min(H,int(np.ceil(y1*H))+3)
+    keep[iy0:iy1,ix0:ix1]=mask[iy0:iy1,ix0:ix1]
+    return keep
+
+def _apply_mask(layer:Image.Image, mask:np.ndarray)->Image.Image:
+    a=np.asarray(layer.convert("RGBA")).copy()
+    a[...,3]=np.minimum(a[...,3],mask)
+    return Image.fromarray(a,"RGBA")
 
 def _ceramic_blend(scene:Image.Image, layer:Image.Image)->Image.Image:
     base=np.asarray(scene.convert("RGB")).astype(np.float32)/255
@@ -87,6 +109,8 @@ def render(template:Template, assignments:dict[str,tuple[Image.Image,str]])->Ima
         if not item:continue
         art,face=item
         layer=_project(art,out.size,slot,face)
+        if slot.marker_mask:
+            layer=_apply_mask(layer,_magenta_mask(scene,slot))
         out=_ceramic_blend(out,layer)
     return out
 
