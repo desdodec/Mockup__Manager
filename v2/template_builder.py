@@ -49,7 +49,7 @@ def run_builder():
     scale=min(1.0,1100/W); cw=int(W*scale); ch=int(H*scale)
     display=scene.resize((cw,ch),Image.Resampling.LANCZOS)
     st.markdown("**2. Roughly draw one rectangle over each mug body**")
-    st.caption(f"Full scene shown at {cw}×{ch}px ({scale:.0%}). Do not include handles. Precision is not required here — Guided Calibration enlarges each mug afterward.")
+    st.caption(f"Full scene shown at {cw}×{ch}px ({scale:.0%}). This is only a drawing preview; rendering/calibration still uses the original {W}×{H}px image. Do not include handles.")
     canvas=st_canvas(fill_color="rgba(0,120,255,0.16)",stroke_width=3,stroke_color="#0078ff",background_image=display,drawing_mode="rect",update_streamlit=True,height=ch,width=cw,key="mug_builder")
     rects=[o for o in ((canvas.json_data or {}).get("objects",[])) if o.get("type")=="rect"]
     raw_boxes=[_normalise_rect(o,cw,ch) for o in rects]
