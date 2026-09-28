@@ -50,13 +50,16 @@ def run_builder():
     maxw={"Compact":600,"Fit screen":760,"Large":960}[canvas_width]
     scale=min(1.0,maxw/W); cw=int(W*scale); ch=int(H*scale)
     display=scene.resize((cw,ch),Image.Resampling.LANCZOS)
-    st.markdown("**2. Roughly draw one rectangle over each mug body**")
-    st.caption(f"Full scene shown at {cw}×{ch}px ({scale:.0%}). This is only a drawing preview; rendering/calibration still uses the original {W}×{H}px image. Do not include handles.")
-    canvas=st_canvas(fill_color="rgba(0,120,255,0.16)",stroke_width=3,stroke_color="#0078ff",background_image=display,drawing_mode="rect",update_streamlit=True,height=ch,width=cw,key="mug_builder")
+    st.markdown("**2. Mark the mugs**")
+    st.info("DRAW: drag a box over a mug body.  UNDO: use the curved-arrow Undo in the canvas toolbar.  DELETE: select a box and use the toolbar delete control.  COPY/PASTE + precise sizing appear immediately below once the first box is drawn.")
+    with st.expander("How the controls work",expanded=False):
+        st.write("1. Draw only the straight ceramic body — leave the handle outside the box.\n\n2. Use the canvas toolbar Undo/Delete controls for drawing mistakes.\n\n3. After the first valid box is drawn, Guided Calibration appears below. There you can Copy Mug Area, Paste Mug Area, move Left/Right/Up/Down, and make it Narrower/Wider/Shorter/Taller.\n\n4. For similar mugs, calibrate one first, Copy it, Paste it, then move the duplicate onto the next mug.")
+    st.caption(f"Full scene: {cw}×{ch}px preview ({scale:.0%}); original remains {W}×{H}px. Handles stay outside the rectangle.")
+    canvas=st_canvas(fill_color="rgba(0,120,255,0.16)",stroke_width=3,stroke_color="#0078ff",background_image=display,drawing_mode="rect",update_streamlit=True,height=ch,width=cw,display_toolbar=True,key="mug_builder")
     rects=[o for o in ((canvas.json_data or {}).get("objects",[])) if o.get("type")=="rect"]
     raw_boxes=[_normalise_rect(o,cw,ch) for o in rects]
     if not raw_boxes:
-        st.warning("Draw at least one mug rectangle."); return
+        st.warning("Draw your first mug rectangle above. As soon as it is valid, Copy/Paste and the fitting controls will appear here."); return
     if any(not _valid(b) for b in raw_boxes):
         st.error("One or more rectangles are too small or outside the image."); return
     sig=tuple(tuple(round(v,5) for v in b) for b in raw_boxes)
