@@ -64,7 +64,19 @@ def run_builder():
     idx=min(st.session_state.get("builder_mug",0),len(boxes)-1)
     st.divider(); st.markdown(f"### 3. Guided Calibration — Mug {idx+1} of {len(boxes)}")
     st.info("The RED vertical line should run down the visual centre of the cylindrical mug body. The BLUE box should cover the body, not the handle. Orange lines show the normal print limits.")
-    st.image(_guide(scene,boxes[idx]),caption=f"Mug {idx+1} enlarged guide",width=700)
+    st.image(_guide(scene,boxes[idx]),caption=f"Mug {idx+1} enlarged guide",width="stretch")
+    copycol,pastecol=st.columns(2)
+    if copycol.button("Copy mug area",width="stretch"):
+        st.session_state.builder_clipboard=boxes[idx]
+        st.toast(f"Mug {idx+1} area copied")
+    if pastecol.button("Paste mug area",disabled="builder_clipboard" not in st.session_state,width="stretch"):
+        source=st.session_state.builder_clipboard
+        # Paste as a new slot with a small offset so it is immediately visible and movable.
+        pasted=_adjust(source,dx=.035,dy=.015)
+        boxes.append(pasted)
+        st.session_state.builder_mug=len(boxes)-1
+        st.rerun()
+    st.caption("Copy/Paste duplicates a calibrated mug area. Paste creates a new mug, then use the arrows to move it over the next mug.")
     step=st.radio("Adjustment size",["Fine","Medium"],horizontal=True,key="builder_step")
     n=.002 if step=="Fine" else .006
     a,b,c,d=st.columns(4)
