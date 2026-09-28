@@ -108,7 +108,14 @@ def _magenta_mask(scene:Image.Image, slot:Slot)->np.ndarray:
         # upper rim from the detected silhouette.
         flat_from=max(top_i,int(round(bottom_i-body_h*0.04)))
         mask[flat_from:bottom_i+1,left_i:right_i+1]=255
-        mask[bottom_i+1:,:]=0
+
+        # AI marker scenes often leave a narrow white ceramic foot below the
+        # magenta body. Extend the printable body through that foot, but only
+        # by a small fraction of mug height so we never reach the table.
+        foot=max(1,int(round(body_h*0.035)))
+        foot_bottom=min(H-1,bottom_i+foot)
+        mask[bottom_i+1:foot_bottom+1,left_i:right_i+1]=255
+        mask[foot_bottom+1:,:]=0
     mask=cv2.GaussianBlur(mask,(0,0),sigmaX=0.8,sigmaY=0.8)
     return mask
 
