@@ -9,7 +9,7 @@ from v2.template_builder import run_builder
 
 st.set_page_config(page_title="Mockup Manager V2",layout="wide")
 st.title("Mockup Manager V2")
-st.caption("Template-first mug mockups: choose a scene, add artwork, render. No mug detection.")
+st.caption("Template-first mug mockups: marker scenes auto-detect printable mug bodies; rendering stays deterministic.")
 workspace=st.sidebar.radio("Workspace",["Mockup Generator","Template Builder"])
 if workspace=="Template Builder":
     run_builder()
