@@ -84,22 +84,34 @@ def _apply_mask(layer:Image.Image, mask:np.ndarray)->Image.Image:
     a[...,3]=np.minimum(a[...,3],mask)
     return Image.fromarray(a,"RGBA")
 
-def _ceramic_blend(scene:Image.Image, layer:Image.Image)->Image.Image:
+def _ceramic_blend(scene:Image.Image, layer:Image.Image, marker_mask:np.ndarray|None=None)->Image.Image:
     base=np.asarray(scene.convert("RGB")).astype(np.float32)/255
     lay=np.asarray(layer.convert("RGBA")).astype(np.float32)/255
     alpha=lay[...,3:4]
     lum=(.2126*base[...,0]+.7152*base[...,1]+.0722*base[...,2])[...,None]
-    # Retain scene shading/highlights without altering artwork geometry.
+
+    # Marker magenta is geometry metadata, never part of the finished ceramic.
+    # Neutralise it first while retaining its luminance as surface lighting.
+    clean_base=base.copy()
+    if marker_mask is not None:
+        m=(marker_mask.astype(np.float32)/255.0)[...,None]
+        neutral=np.repeat(np.clip(.82+.18*lum,0,1),3,axis=2)
+        clean_base=base*(1-m)+neutral*m
+
     shade=np.clip(.72+.38*lum,.72,1.08)
-    # Sublimation ink inherits ceramic illumination; retain a controlled amount
-    # of the original mug highlight instead of painting an opaque sticker.
     rgb=np.clip(lay[...,:3]*shade,0,1)
     spec=np.clip((lum-.72)/.28,0,1)*0.10
-    rgb=np.clip(rgb*(1-spec)+base*spec,0,1)
+    rgb=np.clip(rgb*(1-spec)+clean_base*spec,0,1)
+
+    # Within marker regions the artwork replaces the marker rather than
+    # translucently blending with it. Artwork alpha is still respected.
     strength=.94
     effective_alpha=alpha*strength
-    comp=base*(1-effective_alpha)+rgb*effective_alpha
-    return Image.fromarray((comp*255).astype(np.uint8),"RGB").convert("RGBA")
+    if marker_mask is not None:
+        m=(marker_mask.astype(np.float32)/255.0)[...,None]
+        effective_alpha=np.where(m>0,alpha,effective_alpha)
+    comp=clean_base*(1-effective_alpha)+rgb*effective_alpha
+    return Image.fromarray((np.clip(comp,0,1)*255).astype(np.uint8),"RGB").convert("RGBA")
 
 def render(template:Template, assignments:dict[str,tuple[Image.Image,str]])->Image.Image:
     scene=Image.open(template.scene_path).convert("RGBA")
@@ -109,9 +121,11 @@ def render(template:Template, assignments:dict[str,tuple[Image.Image,str]])->Ima
         if not item:continue
         art,face=item
         layer=_project(art,out.size,slot,face)
+        marker=None
         if slot.marker_mask:
-            layer=_apply_mask(layer,_magenta_mask(scene,slot))
-        out=_ceramic_blend(out,layer)
+            marker=_magenta_mask(scene,slot)
+            layer=_apply_mask(layer,marker)
+        out=_ceramic_blend(out,layer,marker)
     return out
 
 def render_batch(template:Template, artworks:list[tuple[str,Image.Image]], face:str="front")->list[tuple[str,Image.Image]]:
