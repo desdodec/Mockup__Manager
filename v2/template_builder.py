@@ -56,10 +56,17 @@ def run_builder():
         st.write("1. Draw only the straight ceramic body — leave the handle outside the box.\n\n2. If your installed canvas version shows its toolbar, use its Undo/Delete controls for drawing mistakes. We do not force-enable unsupported toolbar options.\n\n3. After the first valid box is drawn, Guided Calibration appears below. There you can Copy Mug Area, Paste Mug Area, move Left/Right/Up/Down, and make it Narrower/Wider/Shorter/Taller.\n\n4. For similar mugs, calibrate one first, Copy it, Paste it, then move the duplicate onto the next mug.")
     st.caption(f"Full scene: {cw}×{ch}px preview ({scale:.0%}); original remains {W}×{H}px. Handles stay outside the rectangle.")
     canvas=st_canvas(fill_color="rgba(0,120,255,0.16)",stroke_width=3,stroke_color="#0078ff",background_image=display,drawing_mode="rect",update_streamlit=True,height=ch,width=cw,key="mug_builder")
-    rects=[o for o in ((canvas.json_data or {}).get("objects",[])) if o.get("type")=="rect"]
+    objects=((canvas.json_data or {}).get("objects",[]))
+    # Fabric.js versions report rectangles as either "rect" or rectangle-like
+    # objects with width/height. Accept both so calibration reliably appears.
+    rects=[o for o in objects if o.get("type")=="rect" or (float(o.get("width",0) or 0)>0 and float(o.get("height",0) or 0)>0 and o.get("type") not in ("image","background"))]
     raw_boxes=[_normalise_rect(o,cw,ch) for o in rects]
     if not raw_boxes:
-        st.warning("Draw your first mug rectangle above. As soon as it is valid, Copy/Paste and the fitting controls will appear here."); return
+        if objects:
+            st.error(f"The canvas returned {len(objects)} object(s), but no usable rectangle was detected. Canvas object types: {', '.join(str(o.get('type','unknown')) for o in objects)}")
+        else:
+            st.warning("Draw your first mug rectangle above. Release the mouse button after drawing; Guided Calibration will appear directly below.")
+        return
     if any(not _valid(b) for b in raw_boxes):
         st.error("One or more rectangles are too small or outside the image."); return
     sig=tuple(tuple(round(v,5) for v in b) for b in raw_boxes)
