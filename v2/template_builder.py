@@ -90,9 +90,9 @@ def run_builder():
         visible=slots[0].visible_deg if slots else 136.0
         centre=512
         half=visible/360.0*2048/2
-        # Seven equally spaced angular reference lines: centre + three each side.
+        # Seven internal angular reference lines: centre + three each side, kept away from the projection boundaries.
         for j in range(-3,4):
-            x=int(round(centre + (j/3.0)*half))
+            x=int(round(centre + (j/4.0)*half))
             if j==0:
                 cd.line((x,0,x,849),fill=(220,0,0,255),width=12)
             else:
