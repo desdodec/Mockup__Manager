@@ -46,7 +46,9 @@ def run_builder():
     if not upload:
         st.info("Choose a scene containing one or more blank mugs."); return
     scene=Image.open(BytesIO(upload.getvalue())).convert("RGB"); W,H=scene.size
-    scale=min(1.0,1100/W); cw=int(W*scale); ch=int(H*scale)
+    canvas_width=st.radio("Scene size",["Compact","Fit screen","Large"],index=0,horizontal=True,key="builder_canvas_size")
+    maxw={"Compact":600,"Fit screen":760,"Large":960}[canvas_width]
+    scale=min(1.0,maxw/W); cw=int(W*scale); ch=int(H*scale)
     display=scene.resize((cw,ch),Image.Resampling.LANCZOS)
     st.markdown("**2. Roughly draw one rectangle over each mug body**")
     st.caption(f"Full scene shown at {cw}×{ch}px ({scale:.0%}). This is only a drawing preview; rendering/calibration still uses the original {W}×{H}px image. Do not include handles.")
