@@ -36,6 +36,7 @@ try:
             print_top=float(item.get("print_top",0.0 if marker else 0.07)),
             print_bottom=float(item.get("print_bottom",1.0 if marker else 0.91)),
             marker_mask=bool(item.get("marker_mask",marker)),
+            visible_deg=float(item.get("visible_deg",136.0)),
         )
         for i,item in enumerate(payload["slots"],1)
     )
