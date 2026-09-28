@@ -63,7 +63,7 @@ slots=tuple(
 )
 template=Template("uploaded",template.name,scene_path,slots)
 
-st.image(scene,caption=f"{template.name} — {len(slots)} mugs",width="stretch")
+st.image(scene,caption=f"{template.name} — {len(slots)} mugs · source {scene.width}×{scene.height}px",width="stretch")
 
 st.subheader("Artwork")
 uploads=st.file_uploader(
@@ -98,9 +98,9 @@ if mode=="Assign mugs":
     if st.button("Render mockup",type="primary",width="stretch"):
         with st.spinner("Rendering locally…"):
             result=render(template,assignments)
-        st.image(result,caption="Rendered mockup",width="stretch")
-        jpg=BytesIO(); result.convert("RGB").save(jpg,"JPEG",quality=95,subsampling=0)
-        png=BytesIO(); result.save(png,"PNG")
+        st.image(result,caption=f"Rendered preview · export is full resolution {result.width}×{result.height}px",width="stretch")
+        jpg=BytesIO(); result.convert("RGB").save(jpg,"JPEG",quality=98,subsampling=0,dpi=(300,300))
+        png=BytesIO(); result.save(png,"PNG",dpi=(300,300))
         a,b=st.columns(2)
         a.download_button("Download JPG",jpg.getvalue(),"mockup.jpg","image/jpeg",width="stretch")
         b.download_button("Download PNG",png.getvalue(),"mockup.png","image/png",width="stretch")
@@ -113,7 +113,7 @@ else:
         z=BytesIO()
         with zipfile.ZipFile(z,"w",zipfile.ZIP_DEFLATED) as archive:
             for label,img in results:
-                b=BytesIO(); img.convert("RGB").save(b,"JPEG",quality=95,subsampling=0)
+                b=BytesIO(); img.convert("RGB").save(b,"JPEG",quality=98,subsampling=0,dpi=(300,300))
                 archive.writestr(f"{label}.jpg",b.getvalue())
         st.success(f"Rendered {len(results)} mockups.")
         for label,img in results[:4]:
