@@ -67,17 +67,37 @@ def _project(art:Image.Image, size:tuple[int,int], slot:Slot, face:str)->Image.I
     return Image.fromarray(out,"RGBA")
 
 def _magenta_mask(scene:Image.Image, slot:Slot)->np.ndarray:
-    """Exact printable silhouette for a marker slot, restricted to its component box."""
+    """Clean anti-aliased printable silhouette for one marker mug."""
     rgb=np.asarray(scene.convert("RGB"))
     hsv=cv2.cvtColor(rgb,cv2.COLOR_RGB2HSV)
-    mask=cv2.inRange(hsv,np.array([140,95,70],np.uint8),np.array([179,255,255],np.uint8))
-    H,W=mask.shape
+    H,W=hsv.shape[:2]
     x0,y0,x1,y1=slot.box
-    keep=np.zeros_like(mask)
-    ix0=max(0,int(x0*W)-3); ix1=min(W,int(np.ceil(x1*W))+3)
-    iy0=max(0,int(y0*H)-3); iy1=min(H,int(np.ceil(y1*H))+3)
-    keep[iy0:iy1,ix0:ix1]=mask[iy0:iy1,ix0:ix1]
-    return keep
+    ix0=max(0,int(x0*W)-6); ix1=min(W,int(np.ceil(x1*W))+6)
+    iy0=max(0,int(y0*H)-6); iy1=min(H,int(np.ceil(y1*H))+6)
+
+    # Include pale/anti-aliased magenta edge pixels as well as saturated marker pixels.
+    h=hsv[...,0]; sat=hsv[...,1]; val=hsv[...,2]
+    hue_magenta=(h>=135)|(h<=2)
+    chroma=hue_magenta & (sat>=28) & (val>=70)
+    roi=np.zeros((H,W),np.uint8)
+    roi[iy0:iy1,ix0:ix1]=(chroma[iy0:iy1,ix0:ix1].astype(np.uint8)*255)
+
+    # Keep only the dominant connected marker component inside this slot.
+    n,labels,stats,_=cv2.connectedComponentsWithStats(roi,8)
+    if n<=1: return roi
+    candidates=[i for i in range(1,n) if stats[i,cv2.CC_STAT_AREA]>20]
+    if not candidates: return roi
+    best=max(candidates,key=lambda i:stats[i,cv2.CC_STAT_AREA])
+    mask=np.where(labels==best,255,0).astype(np.uint8)
+
+    # Fill tiny highlight holes, cover marker fringe, then feather only the outer edge.
+    k=max(3,int(round(min(W,H)*0.004)))
+    if k%2==0:k+=1
+    kernel=cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(k,k))
+    mask=cv2.morphologyEx(mask,cv2.MORPH_CLOSE,kernel,iterations=2)
+    mask=cv2.dilate(mask,np.ones((3,3),np.uint8),iterations=1)
+    mask=cv2.GaussianBlur(mask,(0,0),sigmaX=0.8,sigmaY=0.8)
+    return mask
 
 def _apply_mask(layer:Image.Image, mask:np.ndarray)->Image.Image:
     a=np.asarray(layer.convert("RGBA")).copy()
