@@ -6,6 +6,7 @@ import streamlit as st
 from PIL import Image, ImageDraw
 from streamlit_drawable_canvas import st_canvas
 from v2 import Slot, Template, render
+from v2.marker import detect_marker_mugs, marker_preview
 
 def _normalise_rect(obj,w,h):
     left=float(obj.get("left",0)); top=float(obj.get("top",0))
@@ -41,79 +42,52 @@ def _guide(scene,b):
 
 def run_builder():
     st.header("Template Builder")
-    st.caption("Roughly mark each mug, then use Guided Calibration to centre it precisely.")
+    st.caption("Marker scenes are detected automatically. Manual rectangles remain available for ordinary photos.")
     upload=st.file_uploader("1. Choose a background scene",type=["png","jpg","jpeg"],key="builder_scene")
     if not upload:
-        st.info("Choose a scene containing one or more blank mugs."); return
-    scene=Image.open(BytesIO(upload.getvalue())).convert("RGB"); W,H=scene.size
-    canvas_width=st.radio("Scene size",["Compact","Fit screen","Large"],index=0,horizontal=True,key="builder_canvas_size")
-    maxw={"Compact":600,"Fit screen":760,"Large":960}[canvas_width]
-    scale=min(1.0,maxw/W); cw=int(W*scale); ch=int(H*scale)
-    display=scene.resize((cw,ch),Image.Resampling.LANCZOS)
-    st.markdown("**2. Mark the mugs**")
-    st.info("DRAW: drag a box over a mug body.  UNDO: use the canvas component’s built-in controls if shown by your installed version. COPY/PASTE + precise sizing appear immediately below once the first box is drawn.")
-    with st.expander("How the controls work",expanded=False):
-        st.write("1. Draw only the straight ceramic body — leave the handle outside the box.\n\n2. If your installed canvas version shows its toolbar, use its Undo/Delete controls for drawing mistakes. We do not force-enable unsupported toolbar options.\n\n3. After the first valid box is drawn, Guided Calibration appears below. There you can Copy Mug Area, Paste Mug Area, move Left/Right/Up/Down, and make it Narrower/Wider/Shorter/Taller.\n\n4. For similar mugs, calibrate one first, Copy it, Paste it, then move the duplicate onto the next mug.")
-    st.caption(f"Full scene: {cw}×{ch}px preview ({scale:.0%}); original remains {W}×{H}px. Handles stay outside the rectangle.")
-    canvas=st_canvas(fill_color="rgba(0,120,255,0.16)",stroke_width=3,stroke_color="#0078ff",background_image=display,drawing_mode="rect",update_streamlit=True,height=ch,width=cw,key="mug_builder")
-    objects=((canvas.json_data or {}).get("objects",[]))
-    # Fabric.js versions report rectangles as either "rect" or rectangle-like
-    # objects with width/height. Accept both so calibration reliably appears.
-    rects=[o for o in objects if o.get("type")=="rect" or (float(o.get("width",0) or 0)>0 and float(o.get("height",0) or 0)>0 and o.get("type") not in ("image","background"))]
-    raw_boxes=[_normalise_rect(o,cw,ch) for o in rects]
-    if not raw_boxes:
-        if objects:
-            st.error(f"The canvas returned {len(objects)} object(s), but no usable rectangle was detected. Canvas object types: {', '.join(str(o.get('type','unknown')) for o in objects)}")
-        else:
-            st.warning("Draw your first mug rectangle above. Release the mouse button after drawing; Guided Calibration will appear directly below.")
+        st.info("For the fastest workflow, use a scene whose printable mug bodies are saturated magenta and whose handles remain normal.")
         return
-    if any(not _valid(b) for b in raw_boxes):
-        st.error("One or more rectangles are too small or outside the image."); return
-    sig=tuple(tuple(round(v,5) for v in b) for b in raw_boxes)
-    if st.session_state.get("builder_sig")!=sig:
-        st.session_state.builder_sig=sig; st.session_state.builder_boxes=list(raw_boxes); st.session_state.builder_mug=0
-    boxes=st.session_state.builder_boxes
-    idx=min(st.session_state.get("builder_mug",0),len(boxes)-1)
-    st.divider(); st.markdown(f"### 3. Guided Calibration — Mug {idx+1} of {len(boxes)}")
-    st.info("The RED vertical line should run down the visual centre of the cylindrical mug body. The BLUE box should cover the body, not the handle. Orange lines show the normal print limits.")
-    st.image(_guide(scene,boxes[idx]),caption=f"Mug {idx+1} enlarged guide",width="stretch")
-    copycol,pastecol=st.columns(2)
-    if copycol.button("Copy mug area",width="stretch"):
-        st.session_state.builder_clipboard=boxes[idx]
-        st.toast(f"Mug {idx+1} area copied")
-    if pastecol.button("Paste mug area",disabled="builder_clipboard" not in st.session_state,width="stretch"):
-        source=st.session_state.builder_clipboard
-        # Paste as a new slot with a small offset so it is immediately visible and movable.
-        pasted=_adjust(source,dx=.035,dy=.015)
-        boxes.append(pasted)
-        st.session_state.builder_mug=len(boxes)-1
-        st.rerun()
-    st.caption("Copy/Paste duplicates a calibrated mug area. Paste creates a new mug, then use the arrows to move it over the next mug.")
-    step=st.radio("Adjustment size",["Fine","Medium"],horizontal=True,key="builder_step")
-    n=.002 if step=="Fine" else .006
-    a,b,c,d=st.columns(4)
-    if a.button("← Left",width="stretch"): boxes[idx]=_adjust(boxes[idx],dx=-n); st.rerun()
-    if b.button("Right →",width="stretch"): boxes[idx]=_adjust(boxes[idx],dx=n); st.rerun()
-    if c.button("↑ Up",width="stretch"): boxes[idx]=_adjust(boxes[idx],dy=-n); st.rerun()
-    if d.button("Down ↓",width="stretch"): boxes[idx]=_adjust(boxes[idx],dy=n); st.rerun()
-    a,b,c,d=st.columns(4)
-    if a.button("Narrower",width="stretch"): boxes[idx]=_adjust(boxes[idx],dw=-2*n); st.rerun()
-    if b.button("Wider",width="stretch"): boxes[idx]=_adjust(boxes[idx],dw=2*n); st.rerun()
-    if c.button("Shorter",width="stretch"): boxes[idx]=_adjust(boxes[idx],dh=-2*n); st.rerun()
-    if d.button("Taller",width="stretch"): boxes[idx]=_adjust(boxes[idx],dh=2*n); st.rerun()
-    prev,nextc=st.columns(2)
-    if prev.button("← Previous mug",disabled=idx==0,width="stretch"):
-        st.session_state.builder_mug=idx-1; st.rerun()
-    if nextc.button("Looks right → Next mug",disabled=idx==len(boxes)-1,width="stretch"):
-        st.session_state.builder_mug=idx+1; st.rerun()
-    st.divider(); name=st.text_input("4. Template name",Path(upload.name).stem)
+    scene=Image.open(BytesIO(upload.getvalue())).convert("RGB"); W,H=scene.size
+
+    mode=st.radio("Detection mode",["Automatic marker detection","Manual rectangles"],horizontal=True)
+    boxes=[]
+    if mode=="Automatic marker detection":
+        boxes,_=detect_marker_mugs(scene)
+        if not boxes:
+            st.error("No magenta marker mug bodies were detected. Use Manual rectangles for this scene, or regenerate it with saturated magenta printable bodies.")
+            return
+        st.success(f"{len(boxes)} printable mug{'s' if len(boxes)!=1 else ''} detected")
+        st.image(marker_preview(scene,boxes),caption="Detected mugs — numbered left to right",width="stretch")
+        st.caption("Green boxes are calculated from the marker regions. No centre-line judgement or hand fitting is required.")
+    else:
+        canvas_width=st.radio("Scene size",["Compact","Fit screen","Large"],index=0,horizontal=True,key="builder_canvas_size")
+        maxw={"Compact":600,"Fit screen":760,"Large":960}[canvas_width]
+        scale=min(1.0,maxw/W); cw=int(W*scale); ch=int(H*scale)
+        display=scene.resize((cw,ch),Image.Resampling.LANCZOS)
+        st.info("Drag one rectangle over each straight mug body; leave handles outside.")
+        canvas=st_canvas(fill_color="rgba(0,120,255,0.16)",stroke_width=3,stroke_color="#0078ff",background_image=display,drawing_mode="rect",update_streamlit=True,height=ch,width=cw,key="mug_builder")
+        objects=((canvas.json_data or {}).get("objects",[]))
+        rects=[o for o in objects if o.get("type")=="rect" or (float(o.get("width",0) or 0)>0 and float(o.get("height",0) or 0)>0 and o.get("type") not in ("image","background"))]
+        boxes=[_normalise_rect(o,cw,ch) for o in rects]
+        if not boxes:
+            st.warning("Draw at least one mug rectangle.")
+            return
+        if any(not _valid(b) for b in boxes):
+            st.error("One or more rectangles are too small or outside the image.")
+            return
+
+    st.divider()
+    st.subheader("2. Template")
+    name=st.text_input("Template name",Path(upload.name).stem)
     slots=tuple(Slot(f"mug_{i:02d}",box) for i,box in enumerate(boxes,1))
-    if st.button("Test all mugs",type="primary",width="stretch"):
+
+    if st.button("Test detected mugs",type="primary",width="stretch"):
         tmp=Path(".mockup_manager_preview_scene.png"); scene.save(tmp)
         template=Template("preview",name or "New template",tmp,slots)
         cal=Image.new("RGBA",(2048,849),(255,255,255,255)); cd=ImageDraw.Draw(cal)
         cd.line((512,0,512,849),fill=(255,0,0,255),width=18)
         for x in range(0,2048,128): cd.line((x,0,x,849),fill=(100,100,100,255),width=3)
-        st.image(render(template,{slot.id:(cal,"Front") for slot in slots}),caption="Final test — the red centre line should sit on the centre of every mug body.",width="stretch")
-    payload={"version":2,"name":name or "New template","scene_filename":upload.name,"slots":[{"id":s.id,"box":[round(v,6) for v in s.box]} for s in slots]}
-    st.download_button("5. Save template",json.dumps(payload,indent=2),file_name=f"{(name or 'template').replace(' ','_')}.mockup.json",mime="application/json",width="stretch")
+        st.image(render(template,{slot.id:(cal,"Front") for slot in slots}),caption="Calibration preview on every detected mug",width="stretch")
+
+    payload={"version":2,"name":name or "New template","detection":"magenta-marker" if mode=="Automatic marker detection" else "manual","scene_filename":upload.name,"slots":[{"id":slot.id,"box":[round(v,6) for v in slot.box]} for slot in slots]}
+    st.download_button("3. Save template",json.dumps(payload,indent=2),file_name=f"{(name or 'template').replace(' ','_')}.mockup.json",mime="application/json",width="stretch")
