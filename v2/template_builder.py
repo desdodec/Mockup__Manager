@@ -51,11 +51,11 @@ def run_builder():
     scale=min(1.0,maxw/W); cw=int(W*scale); ch=int(H*scale)
     display=scene.resize((cw,ch),Image.Resampling.LANCZOS)
     st.markdown("**2. Mark the mugs**")
-    st.info("DRAW: drag a box over a mug body.  UNDO: use the curved-arrow Undo in the canvas toolbar.  DELETE: select a box and use the toolbar delete control.  COPY/PASTE + precise sizing appear immediately below once the first box is drawn.")
+    st.info("DRAW: drag a box over a mug body.  UNDO: use the canvas component’s built-in controls if shown by your installed version. COPY/PASTE + precise sizing appear immediately below once the first box is drawn.")
     with st.expander("How the controls work",expanded=False):
-        st.write("1. Draw only the straight ceramic body — leave the handle outside the box.\n\n2. Use the canvas toolbar Undo/Delete controls for drawing mistakes.\n\n3. After the first valid box is drawn, Guided Calibration appears below. There you can Copy Mug Area, Paste Mug Area, move Left/Right/Up/Down, and make it Narrower/Wider/Shorter/Taller.\n\n4. For similar mugs, calibrate one first, Copy it, Paste it, then move the duplicate onto the next mug.")
+        st.write("1. Draw only the straight ceramic body — leave the handle outside the box.\n\n2. If your installed canvas version shows its toolbar, use its Undo/Delete controls for drawing mistakes. We do not force-enable unsupported toolbar options.\n\n3. After the first valid box is drawn, Guided Calibration appears below. There you can Copy Mug Area, Paste Mug Area, move Left/Right/Up/Down, and make it Narrower/Wider/Shorter/Taller.\n\n4. For similar mugs, calibrate one first, Copy it, Paste it, then move the duplicate onto the next mug.")
     st.caption(f"Full scene: {cw}×{ch}px preview ({scale:.0%}); original remains {W}×{H}px. Handles stay outside the rectangle.")
-    canvas=st_canvas(fill_color="rgba(0,120,255,0.16)",stroke_width=3,stroke_color="#0078ff",background_image=display,drawing_mode="rect",update_streamlit=True,height=ch,width=cw,display_toolbar=True,key="mug_builder")
+    canvas=st_canvas(fill_color="rgba(0,120,255,0.16)",stroke_width=3,stroke_color="#0078ff",background_image=display,drawing_mode="rect",update_streamlit=True,height=ch,width=cw,key="mug_builder")
     rects=[o for o in ((canvas.json_data or {}).get("objects",[])) if o.get("type")=="rect"]
     raw_boxes=[_normalise_rect(o,cw,ch) for o in rects]
     if not raw_boxes:
