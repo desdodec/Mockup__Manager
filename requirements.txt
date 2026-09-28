@@ -3,3 +3,4 @@ Pillow>=10.4
 numpy>=1.26
 opencv-python-headless>=4.10
 pytest>=8.3
+streamlit-drawable-canvas>=0.9.3
