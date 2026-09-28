@@ -79,7 +79,7 @@ def run_builder():
     st.divider()
     st.subheader("2. Template")
     name=st.text_input("Template name",Path(upload.name).stem)
-    slots=tuple(Slot(f"mug_{i:02d}",box) for i,box in enumerate(boxes,1))
+    slots=tuple(Slot(f"mug_{i:02d}",box,print_top=0.0,print_bottom=1.0,marker_mask=(mode=="Automatic marker detection")) for i,box in enumerate(boxes,1))
 
     if st.button("Test detected mugs",type="primary",width="stretch"):
         tmp=Path(".mockup_manager_preview_scene.png"); scene.save(tmp)
@@ -89,5 +89,5 @@ def run_builder():
         for x in range(0,2048,128): cd.line((x,0,x,849),fill=(100,100,100,255),width=3)
         st.image(render(template,{slot.id:(cal,"Front") for slot in slots}),caption="Calibration preview on every detected mug",width="stretch")
 
-    payload={"version":2,"name":name or "New template","detection":"magenta-marker" if mode=="Automatic marker detection" else "manual","scene_filename":upload.name,"slots":[{"id":slot.id,"box":[round(v,6) for v in slot.box]} for slot in slots]}
+    payload={"version":2,"name":name or "New template","detection":"magenta-marker" if mode=="Automatic marker detection" else "manual","scene_filename":upload.name,"slots":[{"id":slot.id,"box":[round(v,6) for v in slot.box],"marker_mask":slot.marker_mask,"print_top":slot.print_top,"print_bottom":slot.print_bottom} for slot in slots]}
     st.download_button("3. Save template",json.dumps(payload,indent=2),file_name=f"{(name or 'template').replace(' ','_')}.mockup.json",mime="application/json",width="stretch")
