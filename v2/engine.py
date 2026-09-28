@@ -96,6 +96,19 @@ def _magenta_mask(scene:Image.Image, slot:Slot)->np.ndarray:
     kernel=cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(k,k))
     mask=cv2.morphologyEx(mask,cv2.MORPH_CLOSE,kernel,iterations=2)
     mask=cv2.dilate(mask,np.ones((3,3),np.uint8),iterations=1)
+    # Straight-sided production mugs need a clean manufactured lower edge.
+    # Regularise the marker silhouette row-by-row near the bottom instead of
+    # inheriting AI-generated pixel wobble.
+    ys,xs=np.where(mask>127)
+    if len(xs):
+        top_i,bottom_i=int(ys.min()),int(ys.max())
+        left_i,right_i=int(xs.min()),int(xs.max())
+        body_h=max(1,bottom_i-top_i+1)
+        # Flatten only the lowest 4% of the printable body. Keep the sides and
+        # upper rim from the detected silhouette.
+        flat_from=max(top_i,int(round(bottom_i-body_h*0.04)))
+        mask[flat_from:bottom_i+1,left_i:right_i+1]=255
+        mask[bottom_i+1:,:]=0
     mask=cv2.GaussianBlur(mask,(0,0),sigmaX=0.8,sigmaY=0.8)
     return mask
 
