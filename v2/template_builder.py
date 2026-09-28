@@ -42,14 +42,14 @@ def _guide(scene,b):
 
 def run_builder():
     st.header("Template Builder")
-    st.caption("Marker scenes are detected automatically. Manual rectangles remain available for ordinary photos.")
+    st.caption("Calibrate the final white-mug master once. The saved geometry is reused for every future render.")
     upload=st.file_uploader("1. Choose a background scene",type=["png","jpg","jpeg"],key="builder_scene")
     if not upload:
-        st.info("For the fastest workflow, use a scene whose printable mug bodies are saturated magenta and whose handles remain normal.")
+        st.info("Use the exact finished white-mug lifestyle photograph you want in the final mockups. No marker image is required.")
         return
     scene=Image.open(BytesIO(upload.getvalue())).convert("RGB"); W,H=scene.size
 
-    mode=st.radio("Detection mode",["Automatic marker detection","Manual rectangles"],horizontal=True)
+    mode="Manual rectangles"
     boxes=[]
     if mode=="Automatic marker detection":
         boxes,_=detect_marker_mugs(scene)
@@ -64,11 +64,11 @@ def run_builder():
         maxw={"Compact":600,"Fit screen":760,"Large":960}[canvas_width]
         scale=min(1.0,maxw/W); cw=int(W*scale); ch=int(H*scale)
         display=scene.resize((cw,ch),Image.Resampling.LANCZOS)
-        st.info("Drag one rectangle over each straight mug body; leave handles outside.")
+        st.info("Draw one rectangle over each cylindrical PRINT AREA only. Leave handles, upper rim and the table outside. Draw all mugs; they will be ordered left to right.")
         canvas=st_canvas(fill_color="rgba(0,120,255,0.16)",stroke_width=3,stroke_color="#0078ff",background_image=display,drawing_mode="rect",update_streamlit=True,height=ch,width=cw,key="mug_builder")
         objects=((canvas.json_data or {}).get("objects",[]))
         rects=[o for o in objects if o.get("type")=="rect" or (float(o.get("width",0) or 0)>0 and float(o.get("height",0) or 0)>0 and o.get("type") not in ("image","background"))]
-        boxes=[_normalise_rect(o,cw,ch) for o in rects]
+        boxes=sorted([_normalise_rect(o,cw,ch) for o in rects], key=lambda b:b[0])
         if not boxes:
             st.warning("Draw at least one mug rectangle.")
             return
@@ -79,9 +79,12 @@ def run_builder():
     st.divider()
     st.subheader("2. Template")
     name=st.text_input("Template name",Path(upload.name).stem)
-    slots=tuple(Slot(f"mug_{i:02d}",box,print_top=0.0,print_bottom=1.0,marker_mask=(mode=="Automatic marker detection")) for i,box in enumerate(boxes,1))
+    top_inset=st.slider("Top print inset",0.0,0.12,0.025,0.005,help="Leaves a natural white margin below the upper rim.")
+    bottom_inset=st.slider("Bottom print inset",0.0,0.12,0.025,0.005,help="Keeps artwork above the mug/table contact edge.")
+    visible=st.slider("Visible wrap angle",110,160,136,1,help="How much of the 360-degree artwork is visible across the mug face.")
+    slots=tuple(Slot(f"mug_{i:02d}",box,print_top=top_inset,print_bottom=1.0-bottom_inset,marker_mask=False,visible_deg=float(visible)) for i,box in enumerate(boxes,1))
 
-    if st.button("Test detected mugs",type="primary",width="stretch"):
+    if st.button("Preview calibration",type="primary",width="stretch"):
         tmp=Path(".mockup_manager_preview_scene.png"); scene.save(tmp)
         template=Template("preview",name or "New template",tmp,slots)
         # Build calibration marks only across the exact FRONT angular window.
@@ -97,7 +100,7 @@ def run_builder():
                 cd.line((x,0,x,849),fill=(220,0,0,255),width=12)
             else:
                 cd.line((x,0,x,849),fill=(95,95,95,255),width=4)
-        st.image(render(template,{slot.id:(cal,"Front") for slot in slots}),caption="Calibration preview — each mug should show the same 7 angular reference lines (red centre + 3 grey each side).",width="stretch")
+        st.image(render(template,{slot.id:(cal,"Front") for slot in slots}),caption="Calibration preview — red is the front centre; grey lines show the cylindrical wrap. Adjust rectangles/insets until every print sits naturally inside the white ceramic body.",width="stretch")
 
-    payload={"version":2,"name":name or "New template","detection":"magenta-marker" if mode=="Automatic marker detection" else "manual","scene_filename":upload.name,"slots":[{"id":slot.id,"box":[round(v,6) for v in slot.box],"marker_mask":slot.marker_mask,"print_top":slot.print_top,"print_bottom":slot.print_bottom} for slot in slots]}
-    st.download_button("3. Save template",json.dumps(payload,indent=2),file_name=f"{(name or 'template').replace(' ','_')}.mockup.json",mime="application/json",width="stretch")
+    payload={"version":3,"name":name or "New template","detection":"calibrated-white-master","scene_filename":upload.name,"slots":[{"id":slot.id,"box":[round(v,6) for v in slot.box],"marker_mask":False,"print_top":round(slot.print_top,4),"print_bottom":round(slot.print_bottom,4),"visible_deg":slot.visible_deg} for slot in slots]}
+    st.download_button("Save calibrated template",json.dumps(payload,indent=2),file_name=f"{(name or 'template').replace(' ','_')}.mockup.json",mime="application/json",width="stretch")
