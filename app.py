@@ -4,7 +4,7 @@ from pathlib import Path
 import json
 import zipfile
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageFilter
 from v2 import Slot,Template,render,render_batch
 from v2.template_builder import run_builder
 
@@ -65,6 +65,28 @@ template=Template("uploaded",template.name,scene_path,slots)
 
 st.image(scene,caption=f"{template.name} — {len(slots)} mugs · source {scene.width}×{scene.height}px",width="stretch")
 
+st.subheader("Export quality")
+export_mode=st.radio(
+    "Output size",
+    ["Source resolution","3000 px long edge","4000 px long edge"],
+    index=1,
+    horizontal=True,
+    help="Rendering uses the source scene. The downloaded final image is then high-quality upscaled if needed."
+)
+st.caption("For Etsy-style listing masters, 3000 px is a practical default. 4000 px gives extra room for crops/zoom but cannot invent detail missing from the source.")
+
+def _export_image(img:Image.Image)->Image.Image:
+    target={"Source resolution":0,"3000 px long edge":3000,"4000 px long edge":4000}[export_mode]
+    long=max(img.size)
+    if not target or long>=target:
+        return img
+    ratio=target/long
+    size=(int(round(img.width*ratio)),int(round(img.height*ratio)))
+    # LANCZOS preserves artwork edges better than browser/display scaling.
+    up=img.resize(size,Image.Resampling.LANCZOS)
+    # Very light post-resize sharpening to restore edge acuity without haloing.
+    return up.filter(ImageFilter.UnsharpMask(radius=0.7,percent=70,threshold=3))
+
 st.subheader("Artwork")
 uploads=st.file_uploader(
     "Upload full mug-print canvases",
@@ -99,8 +121,10 @@ if mode=="Assign mugs":
         with st.spinner("Rendering locally…"):
             result=render(template,assignments)
         st.image(result,caption=f"Rendered preview · export is full resolution {result.width}×{result.height}px",width="stretch")
-        jpg=BytesIO(); result.convert("RGB").save(jpg,"JPEG",quality=98,subsampling=0,dpi=(300,300))
-        png=BytesIO(); result.save(png,"PNG",dpi=(300,300))
+        exported=_export_image(result)
+        st.caption(f"Download size: {exported.width}×{exported.height}px")
+        jpg=BytesIO(); exported.convert("RGB").save(jpg,"JPEG",quality=98,subsampling=0,dpi=(300,300))
+        png=BytesIO(); exported.save(png,"PNG",dpi=(300,300))
         a,b=st.columns(2)
         a.download_button("Download JPG",jpg.getvalue(),"mockup.jpg","image/jpeg",width="stretch")
         b.download_button("Download PNG",png.getvalue(),"mockup.png","image/png",width="stretch")
@@ -113,7 +137,8 @@ else:
         z=BytesIO()
         with zipfile.ZipFile(z,"w",zipfile.ZIP_DEFLATED) as archive:
             for label,img in results:
-                b=BytesIO(); img.convert("RGB").save(b,"JPEG",quality=98,subsampling=0,dpi=(300,300))
+                exported=_export_image(img)
+                b=BytesIO(); exported.convert("RGB").save(b,"JPEG",quality=98,subsampling=0,dpi=(300,300))
                 archive.writestr(f"{label}.jpg",b.getvalue())
         st.success(f"Rendered {len(results)} mockups.")
         for label,img in results[:4]:
