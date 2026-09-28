@@ -5,10 +5,15 @@ import zipfile
 import streamlit as st
 from PIL import Image
 from v2 import Slot,Template,render,render_batch
+from v2.template_builder import run_builder
 
 st.set_page_config(page_title="Mockup Manager V2",layout="wide")
 st.title("Mockup Manager V2")
 st.caption("Template-first mug mockups: choose a scene, add artwork, render. No mug detection.")
+workspace=st.sidebar.radio("Workspace",["Mockup Generator","Template Builder"])
+if workspace=="Template Builder":
+    run_builder()
+    st.stop()
 
 DEFAULT_SCENE=Path("H:/Downloads/ChatGPT Image Sep 27, 2026, 06_36_31 PM.png")
 DEFAULT_CAL=Path("H:/Downloads/mockup_manager_cylinder_calibration_2048x849.png")
